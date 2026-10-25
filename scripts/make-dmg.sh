@@ -1,0 +1,19 @@
+#!/bin/zsh
+# Stage and build the FilenameChanger DMG — single home for the DMG layout,
+# shared by release.sh (local) and release.yml (CI).
+#   scripts/make-dmg.sh <app-path> <dmg-path>
+set -e
+APP=$1
+DMG=$2
+[[ -d "$APP" && -n "$DMG" ]] || { echo "usage: make-dmg.sh <app> <dmg>" >&2; exit 1; }
+
+rm -f "$DMG"
+STAGE=$(mktemp -d)
+cp -R "$APP" "$STAGE/"
+ln -s /Applications "$STAGE/Applications"
+# Explicit max zlib level: hdiutil defaults vary by macOS version
+# (the v0.1.0 CI runner effectively shipped half the image uncompressed).
+hdiutil create -volname FilenameChanger -srcfolder "$STAGE" -format UDZO \
+    -imagekey zlib-level=9 -quiet "$DMG"
+rm -rf "$STAGE"
+echo "built $DMG"

@@ -1,0 +1,87 @@
+import Foundation
+import RenameKit
+
+/// A saved rename: a name, the function it captured, and the options in force.
+public struct Preset: Identifiable, Codable, Sendable, Equatable {
+    public var id: String { name }
+    public var name: String
+    public var kind: FunctionKind
+    public var function: RenameFunction
+    public var options: RenameOptions
+
+    public init(name: String, kind: FunctionKind, function: RenameFunction, options: RenameOptions) {
+        self.name = name
+        self.kind = kind
+        self.function = function
+        self.options = options
+    }
+}
+
+extension FunctionKind: Codable {}
+
+/// One past rename action: when it ran and the original → new names.
+public struct HistoryEntry: Identifiable, Codable, Sendable, Equatable {
+    /// Not `Identifiable`: names aren't unique within an entry (files in
+    /// different folders can share a name), so views identify rows by index.
+    public struct Row: Codable, Sendable, Equatable {
+        public var original: String
+        public var renamed: String
+
+        public init(original: String, renamed: String) {
+            self.original = original
+            self.renamed = renamed
+        }
+    }
+
+    public var id = UUID()
+    public var date: Date
+    public var rows: [Row]
+
+    public init(id: UUID = UUID(), date: Date, rows: [Row]) {
+        self.id = id
+        self.date = date
+        self.rows = rows
+    }
+}
+
+/// Reads and writes presets and history as JSON under Application Support.
+/// Dependency-free and injectable: tests point it at a temp directory.
+public struct PersistenceStore: Sendable {
+    private let directory: URL
+
+    public init(directory: URL? = nil) {
+        self.directory =
+            directory
+            ?? URL.applicationSupportDirectory.appending(
+                component: "FilenameChanger", directoryHint: .isDirectory)
+        try? FileManager.default.createDirectory(
+            at: self.directory, withIntermediateDirectories: true)
+    }
+
+    private var presetsURL: URL { directory.appending(component: "presets.json") }
+    private var historyURL: URL { directory.appending(component: "history.json") }
+
+    public func loadPresets() -> [Preset] { load([Preset].self, from: presetsURL) ?? [] }
+    public func savePresets(_ presets: [Preset]) { save(presets, to: presetsURL) }
+    public func loadHistory() -> [HistoryEntry] { load([HistoryEntry].self, from: historyURL) ?? [] }
+    public func saveHistory(_ history: [HistoryEntry]) { save(history, to: historyURL) }
+
+    private func load<T: Decodable>(_ type: T.Type, from url: URL) -> T? {
+        guard let data = try? Data(contentsOf: url) else { return nil }  // no file: nothing to load
+        if let value = try? JSONDecoder().decode(type, from: data) { return value }
+        // The file exists but won't decode — corrupt, or an older/newer schema.
+        // Move it aside to a `.bak` rather than let the next save overwrite it,
+        // so the user's presets/history are recoverable instead of silently lost.
+        let backup = url.appendingPathExtension("bak")
+        try? FileManager.default.removeItem(at: backup)  // replace any previous backup
+        try? FileManager.default.moveItem(at: url, to: backup)
+        return nil
+    }
+
+    private func save<T: Encodable>(_ value: T, to url: URL) {
+        let encoder = JSONEncoder()
+        encoder.outputFormatting = [.prettyPrinted, .sortedKeys]
+        guard let data = try? encoder.encode(value) else { return }
+        try? data.write(to: url, options: .atomic)
+    }
+}
