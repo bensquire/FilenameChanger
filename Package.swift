@@ -9,10 +9,18 @@ let package = Package(
         // no AppKit — the one piece worth testing in depth, so it imports
         // nothing that needs a window.
         .target(name: "RenameKit", path: "Sources/RenameKit"),
+        // Smart Name's reader: a document's text (PDFKit, Vision OCR) and the
+        // on-device Apple Intelligence model. Kept apart so neither the engine
+        // nor the views import model code.
+        .target(
+            name: "RenameIntelligence", dependencies: ["RenameKit"],
+            path: "Sources/RenameIntelligence"
+        ),
         // App layer as a library so the model is testable; the executable
         // below is just the @main scene declaration.
         .target(
-            name: "RenameApp", dependencies: ["RenameKit"], path: "Sources/RenameApp"
+            name: "RenameApp", dependencies: ["RenameKit", "RenameIntelligence"],
+            path: "Sources/RenameApp"
         ),
         .executableTarget(
             name: "FilenameChanger", dependencies: ["RenameApp"],
@@ -20,7 +28,7 @@ let package = Package(
         ),
         .testTarget(
             name: "FilenameChangerTests",
-            dependencies: ["RenameKit", "RenameApp"],
+            dependencies: ["RenameKit", "RenameIntelligence", "RenameApp"],
             path: "Tests/FilenameChangerTests"
         ),
     ]

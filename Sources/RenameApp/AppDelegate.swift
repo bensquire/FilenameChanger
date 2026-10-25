@@ -44,6 +44,12 @@ public final class AppDelegate: NSObject, NSApplicationDelegate {
         NSApplication.shared.servicesProvider = self
     }
 
+    /// Coming back to the app is when Apple Intelligence may have finished
+    /// setting up, so Smart Name tries reading again.
+    public func applicationDidBecomeActive(_ notification: Notification) {
+        model.analyzeIfNeeded()
+    }
+
     /// One window: closing it ends the session, so a later Open With starts a
     /// fresh launch with a window, rather than adding files to a list that
     /// nothing shows.

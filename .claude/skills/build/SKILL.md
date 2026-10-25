@@ -7,8 +7,8 @@ description: Build, test, lint and bundle FilenameChanger — the SwiftPM packag
 
 FilenameChanger is a SwiftPM package with no Xcode project and no dependencies.
 `Package.swift` (tools 6.2, macOS 26) has one executable, `FilenameChanger`,
-over the libraries `RenameKit` (the engine) and `RenameApp` (the SwiftUI views
-and model), plus one test target, `FilenameChangerTests`, using Swift Testing.
+over the libraries `RenameKit` (the engine), `RenameIntelligence` (Smart Name's
+document reader) and `RenameApp` (the SwiftUI views and model), plus one test target, `FilenameChangerTests`, using Swift Testing.
 There are no other executables and no products. `bundle.sh` turns the
 executable into `FilenameChanger.app`.
 
@@ -31,7 +31,7 @@ Timings are from this Mac, 25 October 2026.
 |---|---|---|
 | Debug build | `swift build` | `.build/debug/FilenameChanger`; about 15 s from clean |
 | Run unbundled | `swift run FilenameChanger` | `FILENAMECHANGER_FOLDER=/path swift run FilenameChanger` loads that folder's top-level files at launch. No `Info.plist`, so no Finder Service and no Open With |
-| Test suite | `make test` | `swift test`, a debug build: 103 tests in 12 suites, run in 0.07 s; 1.5–1.9 s wall clock warm, about 21 s from clean |
+| Test suite | `make test` | `swift test`, a debug build: 129 tests in 15 suites, run in about 0.3 s; 1.5–1.9 s wall clock warm, about 21 s from clean. The first run after a reboot can take a minute while Vision loads its text-recognition model for the two OCR tests |
 | One test | `swift test --filter swapRenamesBothFiles` | a suite's type name (`EngineTests`) or a test's function name. A `@Test("…")` display name does not match |
 | Lint | `make lint` | `swift format lint --strict` over `Sources`, `Tests`, `Package.swift`; warnings fail; 0.2 s |
 | Format | `make format` | rewrites in place; run it over the files you changed |
@@ -46,7 +46,7 @@ What `bundle.sh` does, in order: `swift build -c release -Xswiftc -Osize`
 strips it; copies `icon/FilenameChanger.icns`; writes `Info.plist` from
 `scripts/Info.plist.template` with the version and checks it with `plutil`;
 signs the app with the hardened runtime and a timestamp; and verifies the
-signature. The result is 716 KB (`du -sh`): the executable 634 KB, the icon
+signature. The result is 848 KB (`du -sh`): the executable 768 KB, the icon
 69 KB.
 
 ## Matching CI

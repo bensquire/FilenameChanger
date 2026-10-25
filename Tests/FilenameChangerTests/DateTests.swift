@@ -7,18 +7,8 @@ import Testing
 struct DateTests {
     private let hidden = RenameOptions(hideExtension: true)
 
-    /// Noon on 2024-01-15 in the local time zone. DateStamp formats in the
-    /// local zone, so the stamp reads the 15th on every machine — from UTC+14
-    /// to UTC−12, where a fixed UTC instant would land on the 14th or 16th.
-    private var fixedDate: Date {
-        var components = DateComponents()
-        components.year = 2024
-        components.month = 1
-        components.day = 15
-        components.hour = 12
-        components.timeZone = .autoupdatingCurrent
-        return Calendar(identifier: .gregorian).date(from: components) ?? Date(timeIntervalSince1970: 0)
-    }
+    /// Noon on 2024-01-15 in the local time zone (see `localNoon`).
+    private var fixedDate: Date { localNoon(2024, 1, 15) }
 
     @Test("a custom date prepends in the chosen preset format")
     func customDatePrepend() {

@@ -5,7 +5,11 @@ import SwiftUI
 /// and trailing text is drawn muted; the inserted or replaced middle is drawn
 /// in the accent colour.
 enum NameDiff {
-    static func attributed(original: String, proposed: String) -> AttributedString {
+    /// `onSelection`: the row is selected, so its background is the accent
+    /// colour. The colours go, leaving the selection's own text colour, and
+    /// the change is picked out by weight alone.
+    static func attributed(original: String, proposed: String, onSelection: Bool = false) -> AttributedString
+    {
         let old = Array(original)
         let new = Array(proposed)
 
@@ -25,19 +29,34 @@ enum NameDiff {
         let tail = String(new[(new.count - suffix)...])
 
         var result = AttributedString()
-        result += styled(head, color: .secondary)
-        result += styled(middle, color: .accentColor, bold: true)
-        result += styled(tail, color: .secondary)
+        result += styled(head, color: onSelection ? nil : .secondary)
+        result += styled(middle, color: onSelection ? nil : .accentColor, bold: true)
+        result += styled(tail, color: onSelection ? nil : .secondary)
         return result
     }
 
     private static func styled(
-        _ string: String, color: Color, bold: Bool = false
+        _ string: String, color: Color?, bold: Bool = false
     ) -> AttributedString {
         guard !string.isEmpty else { return AttributedString() }
         var piece = AttributedString(string)
-        piece.foregroundColor = color
+        if let color { piece.foregroundColor = color }
         if bold { piece.font = .body.bold() }
         return piece
+    }
+}
+
+/// A New Name cell's diff, which knows whether its row is selected: a selected
+/// table row raises the background prominence for what it holds.
+/// /documentation/swiftui/environmentvalues/backgroundprominence
+struct NameDiffText: View {
+    let original: String
+    let proposed: String
+    @Environment(\.backgroundProminence) private var prominence
+
+    var body: some View {
+        Text(
+            NameDiff.attributed(original: original, proposed: proposed, onSelection: prominence == .increased)
+        )
     }
 }

@@ -12,44 +12,21 @@ import Testing
 @MainActor
 @Suite("Rename on disk: performRename + undo")
 struct RenameOnDiskTests {
-    /// A fresh temp directory holding real, empty files; removed on deinit.
-    private final class Sandbox {
-        let directory: URL
-        init(_ names: [String]) throws {
-            directory = URL(fileURLWithPath: NSTemporaryDirectory())
-                .appendingPathComponent("fnc-disk-\(UUID().uuidString)")
-            try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
-            for name in names {
-                FileManager.default.createFile(
-                    atPath: directory.appendingPathComponent(name).path, contents: Data())
-            }
-        }
-        func urls(_ names: [String]) -> [URL] { names.map { directory.appendingPathComponent($0) } }
-        func exists(_ name: String) -> Bool {
-            FileManager.default.fileExists(atPath: directory.appendingPathComponent(name).path)
-        }
-        /// Write distinctive bytes into a file so a test can prove its content
-        /// survived (or wasn't clobbered by) a rename.
-        func write(_ content: String, to name: String) {
-            try? Data(content.utf8).write(to: directory.appendingPathComponent(name))
-        }
-        func contents(of name: String) -> String? {
-            try? String(contentsOf: directory.appendingPathComponent(name), encoding: .utf8)
-        }
-        deinit { try? FileManager.default.removeItem(at: directory) }
-    }
-
-    private func makeModel(in directory: URL) -> AppModel {
-        let store = PersistenceStore(
-            directory: directory.appendingPathComponent("store-\(UUID().uuidString)"))
-        return AppModel(store: store)  // real SystemFileMetadataProvider
+    /// The real `SystemFileMetadataProvider` and move, so this is the path
+    /// the Rename button takes.
+    private func makeModel(
+        in sandbox: Sandbox,
+        moveItem: @escaping (URL, URL) throws -> Void = { try FileManager.default.moveItem(at: $0, to: $1) }
+    ) -> AppModel {
+        makeTestModel(
+            provider: SystemFileMetadataProvider(), storeIn: sandbox.url("store"), moveItem: moveItem)
     }
 
     @Test("Prepend actually renames the files on disk")
     func performRenameMovesFiles() throws {
         // Arrange: three real files, a model pointed at them, Prepend "2026-".
         let sandbox = try Sandbox(["a.txt", "b.txt", "c.txt"])
-        let model = makeModel(in: sandbox.directory)
+        let model = makeModel(in: sandbox)
         model.add(urls: sandbox.urls(["a.txt", "b.txt", "c.txt"]))
         model.kind = .prepend
         model.prependText = "2026-"
@@ -71,7 +48,7 @@ struct RenameOnDiskTests {
     @Test("Undo moves the whole batch back")
     func undoRestoresOriginalNames() throws {
         let sandbox = try Sandbox(["a.txt", "b.txt"])
-        let model = makeModel(in: sandbox.directory)
+        let model = makeModel(in: sandbox)
         model.add(urls: sandbox.urls(["a.txt", "b.txt"]))
         model.kind = .prepend
         model.prependText = "x-"
@@ -95,7 +72,7 @@ struct RenameOnDiskTests {
     @Test("renameSingle renames one file and records history")
     func renameSingleMovesOneFile() throws {
         let sandbox = try Sandbox(["a.txt", "b.txt"])
-        let model = makeModel(in: sandbox.directory)
+        let model = makeModel(in: sandbox)
         model.add(urls: sandbox.urls(["a.txt", "b.txt"]))
         let id = model.items[0].id
 
@@ -111,7 +88,7 @@ struct RenameOnDiskTests {
     @Test("renameSingle refuses a name that is already taken")
     func renameSingleRefusesCollision() throws {
         let sandbox = try Sandbox(["a.txt", "b.txt"])
-        let model = makeModel(in: sandbox.directory)
+        let model = makeModel(in: sandbox)
         model.add(urls: sandbox.urls(["a.txt"]))
 
         let ok = model.renameSingle(model.items[0].id, to: "b.txt", undoManager: nil)
@@ -124,7 +101,7 @@ struct RenameOnDiskTests {
     @Test("renameSingle refuses an invalid name and reports it")
     func renameSingleRefusesInvalid() throws {
         let sandbox = try Sandbox(["a.txt"])
-        let model = makeModel(in: sandbox.directory)
+        let model = makeModel(in: sandbox)
         model.add(urls: sandbox.urls(["a.txt"]))
 
         let ok = model.renameSingle(model.items[0].id, to: "a/b.txt", undoManager: nil)
@@ -139,7 +116,7 @@ struct RenameOnDiskTests {
         // "report.txt" already exists, so renaming draft → report must be skipped;
         // both files stay as they are.
         let sandbox = try Sandbox(["draft.txt", "report.txt"])
-        let model = makeModel(in: sandbox.directory)
+        let model = makeModel(in: sandbox)
         model.add(urls: sandbox.urls(["draft.txt"]))
         model.kind = .replaceFirst
         model.findText = "draft"
@@ -158,9 +135,9 @@ struct RenameOnDiskTests {
         // FileManager.moveItem (it never overwrites), so the target keeps its
         // bytes and the source keeps its own.
         let sandbox = try Sandbox(["draft.txt", "report.txt"])
-        sandbox.write("SOURCE", to: "draft.txt")
-        sandbox.write("PRECIOUS", to: "report.txt")
-        let model = makeModel(in: sandbox.directory)
+        sandbox.file("draft.txt", contents: "SOURCE")
+        sandbox.file("report.txt", contents: "PRECIOUS")
+        let model = makeModel(in: sandbox)
         model.add(urls: sandbox.urls(["draft.txt"]))
         model.kind = .replaceFirst
         model.findText = "draft"
@@ -177,9 +154,9 @@ struct RenameOnDiskTests {
         // Table order [2.txt, 1.txt] renumbered from 1 swaps the two names. The
         // executor must route one file through a temp so neither is clobbered.
         let sandbox = try Sandbox(["2.txt", "1.txt"])
-        sandbox.write("TWO", to: "2.txt")
-        sandbox.write("ONE", to: "1.txt")
-        let model = makeModel(in: sandbox.directory)
+        sandbox.file("2.txt", contents: "TWO")
+        sandbox.file("1.txt", contents: "ONE")
+        let model = makeModel(in: sandbox)
         model.add(urls: sandbox.urls(["2.txt", "1.txt"]))
         model.kind = .sequence
         model.sequence = SequenceConfig(placement: .replaceAll, digits: 1, start: 1, sort: .custom)
@@ -190,7 +167,7 @@ struct RenameOnDiskTests {
         #expect(sandbox.contents(of: "1.txt") == "TWO")  // old 2.txt's bytes
         #expect(sandbox.contents(of: "2.txt") == "ONE")  // old 1.txt's bytes
         // No temp files left behind.
-        let leftovers = try FileManager.default.contentsOfDirectory(atPath: sandbox.directory.path)
+        let leftovers = try FileManager.default.contentsOfDirectory(atPath: sandbox.root.path)
             .filter { $0.hasPrefix(".filenamechanger-rename") }
         #expect(leftovers.isEmpty)
     }
@@ -198,10 +175,10 @@ struct RenameOnDiskTests {
     @Test("a shift renumber preserves every file's content")
     func shiftRenumberPreservesContent() throws {
         let sandbox = try Sandbox(["1.txt", "2.txt", "3.txt"])
-        sandbox.write("A", to: "1.txt")
-        sandbox.write("B", to: "2.txt")
-        sandbox.write("C", to: "3.txt")
-        let model = makeModel(in: sandbox.directory)
+        sandbox.file("1.txt", contents: "A")
+        sandbox.file("2.txt", contents: "B")
+        sandbox.file("3.txt", contents: "C")
+        let model = makeModel(in: sandbox)
         model.add(urls: sandbox.urls(["1.txt", "2.txt", "3.txt"]))
         model.kind = .sequence
         model.sequence = SequenceConfig(placement: .replaceAll, digits: 1, start: 2, sort: .custom)
@@ -218,9 +195,9 @@ struct RenameOnDiskTests {
     @Test("undo of a swap restores the original names and content")
     func undoSwap() throws {
         let sandbox = try Sandbox(["2.txt", "1.txt"])
-        sandbox.write("TWO", to: "2.txt")
-        sandbox.write("ONE", to: "1.txt")
-        let model = makeModel(in: sandbox.directory)
+        sandbox.file("2.txt", contents: "TWO")
+        sandbox.file("1.txt", contents: "ONE")
+        let model = makeModel(in: sandbox)
         model.add(urls: sandbox.urls(["2.txt", "1.txt"]))
         model.kind = .sequence
         model.sequence = SequenceConfig(placement: .replaceAll, digits: 1, start: 1, sort: .custom)
@@ -241,8 +218,8 @@ struct RenameOnDiskTests {
         // volume already "has" (the file itself). It must still rename, not fail
         // or lose the file.
         let sandbox = try Sandbox(["photo.txt"])
-        sandbox.write("PIXELS", to: "photo.txt")
-        let model = makeModel(in: sandbox.directory)
+        sandbox.file("photo.txt", contents: "PIXELS")
+        let model = makeModel(in: sandbox)
         model.add(urls: sandbox.urls(["photo.txt"]))
         model.kind = .changeCase
         model.textCase = .upper
@@ -259,9 +236,9 @@ struct RenameOnDiskTests {
         // Arrange: Prepend over a.txt and b.txt. The injected mover lets a's
         // move through, then fails b's (forcing a rollback) and a's move back.
         let sandbox = try Sandbox(["a.txt", "b.txt"])
-        let store = PersistenceStore(directory: sandbox.directory.appendingPathComponent("store"))
         var moves = 0
-        let model = AppModel(store: store) { from, to in
+        let model = makeModel(in: sandbox) {
+            from, to in
             moves += 1
             guard moves == 1 else { throw CocoaError(.fileWriteUnknown) }
             try FileManager.default.moveItem(at: from, to: to)

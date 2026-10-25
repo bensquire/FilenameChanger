@@ -47,11 +47,37 @@ public struct FileMetadata: Sendable, Equatable {
     public var creationDate: Date?
     public var modificationDate: Date?
     public var exifDate: Date?
+    /// What reading the file's contents found, for Smart Name. Nil until the
+    /// file has been read — reading is slow, so it happens outside the plan.
+    public var document: DocumentSummary?
 
-    public init(creationDate: Date? = nil, modificationDate: Date? = nil, exifDate: Date? = nil) {
+    public init(
+        creationDate: Date? = nil, modificationDate: Date? = nil, exifDate: Date? = nil,
+        document: DocumentSummary? = nil
+    ) {
         self.creationDate = creationDate
         self.modificationDate = modificationDate
         self.exifDate = exifDate
+        self.document = document
+    }
+}
+
+/// A document's title, who it is from, and its date (the date it was issued
+/// or written), as read from its contents.
+public struct DocumentSummary: Sendable, Equatable {
+    public var title: String
+    /// The company, organisation or person that sent or issued it; nil when
+    /// the document doesn't say.
+    public var from: String?
+    /// The date the document gives, or the file's creation date when it gives
+    /// none (decided when it is read, so the plan never goes to the disk).
+    /// Nil only when neither exists.
+    public var date: Date?
+
+    public init(title: String, from: String? = nil, date: Date? = nil) {
+        self.title = title
+        self.from = from
+        self.date = date
     }
 }
 

@@ -12,16 +12,23 @@ paths: ["Sources/**/*.swift", "Package.swift"]
 
 The layers are the targets in `Package.swift`, and the dependencies run one way:
 
-- **`RenameKit`** is the engine: the thirteen functions (`RenameFunction`), the
+- **`RenameKit`** is the engine: the fourteen functions (`RenameFunction`), the
   plan with its collision rules (`RenameEngine`), the move ordering
   (`RenameSequencer`), matching (`TextMatching`) and the real metadata reader
   (`SystemFileMetadataProvider`). It imports Foundation and ImageIO, no AppKit
-  or SwiftUI, and it moves no files: it says what should happen.
+  or SwiftUI, and it moves no files: it says what should happen. It is
+  synchronous: Smart Name's slow, async reading happens elsewhere and reaches
+  the engine as `FileMetadata.document`.
+- **`RenameIntelligence`** reads documents for Smart Name: their text
+  (`DocumentText`, through PDFKit and Vision) and a title and date from the
+  on-device model (`AppleIntelligenceSummarizer`, behind the
+  `DocumentSummarizer` protocol). It depends only on `RenameKit`, and no view
+  imports FoundationModels.
 - **`RenameApp`** holds the `@MainActor @Observable AppModel`, the views, and
   the edges to the system: `FileAdder` (the open panel and folder walks),
-  `Persistence` (presets and history as JSON) and `AppDelegate` (Open With,
-  the Dock icon and the Finder Service). It is a library so the model can be
-  tested.
+  `Persistence` (presets and history as JSON), `AppDelegate` (Open With,
+  the Dock icon and the Finder Service) and `DocumentAnalysis` (Smart Name's
+  reading queue). It is a library so the model can be tested.
 - **`FilenameChanger`** is the `@main` scene and nothing more.
 
 Within the engine, `RenameFunction` turns one base name into a proposed one,

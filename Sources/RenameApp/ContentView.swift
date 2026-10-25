@@ -133,22 +133,36 @@ public struct ContentView: View {
     @ViewBuilder private func newNameCell(_ row: PlannedRename) -> some View {
         let original = model.options.displayName(for: row.originalName)
         let proposed = model.options.displayName(for: row.proposedName)
-        if let issue = row.issue {
+        let reading = model.readingStatus(for: row.id)
+        if reading == .pending {
             HStack(spacing: 6) {
-                Image(systemName: "exclamationmark.triangle.fill")
-                    .foregroundStyle(.orange)
-                    .font(.caption)
-                Text(proposed).foregroundStyle(.secondary)
+                ProgressView().controlSize(.mini)
+                Text("Reading…").foregroundStyle(.secondary)
             }
-            .help(issueText(issue))
-            .accessibilityLabel("\(proposed), \(issueText(issue))")
+        } else if case let .failed(reason) = reading {
+            warningCell(proposed, reason: reason)
+        } else if let issue = row.issue {
+            warningCell(proposed, reason: issueText(issue))
         } else if row.willRename {
-            Text(NameDiff.attributed(original: original, proposed: proposed))
+            NameDiffText(original: original, proposed: proposed)
         } else {
             Text(proposed)
                 .foregroundStyle(.tertiary)
                 .help("No change for this file.")
         }
+    }
+
+    /// A grey name with an orange warning, and why on hover: a row that
+    /// can't be renamed.
+    private func warningCell(_ proposed: String, reason: String) -> some View {
+        HStack(spacing: 6) {
+            Image(systemName: "exclamationmark.triangle.fill")
+                .foregroundStyle(.orange)
+                .font(.caption)
+            Text(proposed).foregroundStyle(.secondary)
+        }
+        .help(reason)
+        .accessibilityLabel("\(proposed), \(reason)")
     }
 
     // MARK: - Row actions
@@ -216,6 +230,8 @@ public struct ContentView: View {
                     // Labelled for VoiceOver; the visible "Rename" text sits beside it.
                     Picker("Rename function", selection: $model.kind) {
                         ForEach(FunctionKind.allCases) { kind in
+                            // Set apart: the one function that reads the files.
+                            if kind == .smartName { Divider() }
                             Text(kind.title).tag(kind)
                         }
                     }

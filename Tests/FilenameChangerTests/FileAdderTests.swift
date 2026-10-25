@@ -9,36 +9,13 @@ import Testing
 @MainActor
 @Suite("FileAdder: expanding dropped folders and packages")
 struct FileAdderTests {
-    /// A throwaway directory tree, removed on deinit.
-    private final class Sandbox {
-        let root: URL
-        init() throws {
-            root = URL(fileURLWithPath: NSTemporaryDirectory())
-                .appendingPathComponent("fnc-adder-\(UUID().uuidString)")
-            try FileManager.default.createDirectory(at: root, withIntermediateDirectories: true)
-        }
-        @discardableResult func file(_ path: String) -> URL {
-            let url = root.appendingPathComponent(path)
-            try? FileManager.default.createDirectory(
-                at: url.deletingLastPathComponent(), withIntermediateDirectories: true)
-            FileManager.default.createFile(atPath: url.path, contents: Data())
-            return url
-        }
-        @discardableResult func directory(_ path: String) -> URL {
-            let url = root.appendingPathComponent(path)
-            try? FileManager.default.createDirectory(at: url, withIntermediateDirectories: true)
-            return url
-        }
-        deinit { try? FileManager.default.removeItem(at: root) }
-    }
-
     @Test("a dropped folder expands to its files, recursively")
     func expandsFolderRecursively() throws {
         let sandbox = try Sandbox()
         sandbox.file("photos/a.jpg")
         sandbox.file("photos/b.jpg")
         sandbox.file("photos/sub/c.jpg")
-        let folder = sandbox.root.appendingPathComponent("photos")
+        let folder = sandbox.url("photos")
 
         let result = FileAdder.expandForDrop([folder]).map(\.lastPathComponent).sorted()
 
@@ -69,7 +46,7 @@ struct FileAdderTests {
         sandbox.file("photos/a.jpg")
         sandbox.file("photos/.DS_Store")
         sandbox.file("photos/.cache/b.jpg")  // a hidden folder isn't walked either
-        let folder = sandbox.root.appendingPathComponent("photos")
+        let folder = sandbox.url("photos")
 
         let result = FileAdder.expandForDrop([folder]).map(\.lastPathComponent)
 

@@ -8,10 +8,7 @@ import Testing
 @Suite("AppModel: reordering")
 struct ModelTests {
     private func makeModel(_ names: [String]) -> AppModel {
-        let store = PersistenceStore(
-            directory: URL(fileURLWithPath: NSTemporaryDirectory())
-                .appendingPathComponent("fnc-model-test-\(UUID().uuidString)"))
-        let model = AppModel(provider: FakeMetadataProvider(), store: store)
+        let model = makeTestModel()
         model.add(urls: names.map { URL(fileURLWithPath: "/tmp/\($0)") })
         return model
     }

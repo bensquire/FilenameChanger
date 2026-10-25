@@ -33,7 +33,7 @@ for Apple Silicon. It is small, has no dependencies, and works offline.
 
 ## Rename functions
 
-Thirteen functions. Each one previews live, and a row the function doesn't
+Fourteen functions. Each one previews live, and a row the function doesn't
 match is simply left alone.
 
 | Function | What it does | Example |
@@ -48,6 +48,28 @@ match is simply left alone.
 | **Clean Up** | Replaces spaces, collapses whitespace, strips accents and removes unsafe characters (`/ \ : * ? " < > \|`) | `Café  Menu?` → `Cafe_Menu` |
 | **Sequence** | Numbers files (1–6 digits, any start) with optional text before or after the number. Prepend, append or replace. Ordered by your custom order, name, file date or EXIF date | `IMG_4021` → `Trip 001` |
 | **Date** | Stamps a chosen date, the file's creation date or its EXIF date, from six presets or a custom pattern. Prepend, append or replace | `IMG_4021` → `2026-10-25` |
+| **Smart Name** | Reads each document and names it from its contents with a template: `{date}` (the date the document gives, or the file's), `{title}`, `{from}` (who sent it) and `{name}` | `{date} - {from} - {title}`: `scan0001.pdf` → `20260303 - Acme Energy - Electricity Bill.pdf` |
+
+### Smart Name
+
+Smart Name uses Apple Intelligence, the language model built into macOS, to
+read what a document says: its title and the date it was issued or written. It
+reads text PDFs and plain-text files, and reads scanned PDFs and photos of
+documents with on-device text recognition (OCR). Everything happens on your
+Mac; no file is uploaded anywhere.
+
+If a document doesn't say who it's from, `{from}` drops out along with the
+separator in front of it, so you never get `20260303 -  - Bill`.
+
+**Case** re-cases `{title}` and `{from}` (Title Case by default, or **As
+written** to keep the model's wording). Title Case leaves short words like
+"of" and "and" lower case, keeps acronyms such as `BT` and names such as
+`McDonald`, and tames a title written in capitals.
+
+Each file is read once, in the background, and the row shows **Reading…** until
+it's done. Changing the template afterwards updates every name at once without
+reading the files again. A file it can't read is marked with the reason and
+left alone. Smart Name needs a Mac with Apple Intelligence turned on.
 
 ### Options
 
@@ -148,13 +170,17 @@ git config core.hooksPath .githooks
 
 ```
 Sources/RenameKit/                 # the engine: pure Swift, no AppKit
-  RenameFunction.swift             #   the thirteen functions, one enum case each
+  RenameFunction.swift             #   the fourteen functions, one enum case each
   RenameEngine.swift               #   plan: split extension, apply, flag collisions
   RenameSequencer.swift            #   orders moves so chains and swaps go via temps
   TextMatching.swift               #   find/replace, wildcard and cached regex
   SystemFileMetadataProvider.swift #   file dates + EXIF via ImageIO
+Sources/RenameIntelligence/        # Smart Name's reader
+  DocumentText.swift               #   text from PDFs, text files, and OCR via Vision
+  DocumentSummarizer.swift         #   title + date from the on-device model
 Sources/RenameApp/                 # SwiftUI views and the @Observable AppModel
   AppModel.swift                   #   state, live plan, transactional rename, undo
+  DocumentAnalysis.swift           #   Smart Name's queue: each file read once
   ContentView.swift                #   file table, toolbar, options bar
   FunctionParametersView.swift     #   per-function controls
   FileAdder.swift                  #   open panel, drops and folder expansion
@@ -169,8 +195,10 @@ scripts/                           # Info.plist template, DMG packaging
 ```
 
 `RenameKit` doesn't import AppKit and reads file metadata through an injected
-protocol, so the engine tests run against a fake. `RenameApp` is a library
-rather than part of the executable, so the model can be tested too.
+protocol, so the engine tests run against a fake. Smart Name's findings reach
+the engine the same way, as file metadata. The model is reached through a
+`DocumentSummarizer` protocol, so tests also swap it for a fake. `RenameApp` is
+a library rather than part of the executable, so the model can be tested too.
 
 ## Releasing
 

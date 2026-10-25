@@ -1,5 +1,6 @@
 import Foundation
 import Observation
+import RenameIntelligence
 import RenameKit
 
 /// UI-facing mode for Remove Characters.
@@ -21,6 +22,36 @@ public enum DateSourceKind: String, CaseIterable, Sendable {
     case exif
 }
 
+/// A date format as the panel edits it: a preset, or a typed pattern that is
+/// kept while the preset is in use, so switching back and forth loses neither.
+/// Shared by Date and Smart Name.
+public struct DateFormatFields: Equatable, Sendable {
+    public var usePreset = true
+    public var preset: DatePreset = .isoDash
+    public var pattern = "yyyy-MM-dd"
+
+    /// Starts from `choice`; a preset also seeds the pattern field with itself.
+    public init(_ choice: DateFormatChoice) {
+        if case let .preset(value) = choice { pattern = value.rawValue }
+        load(choice)
+    }
+
+    public var choice: DateFormatChoice {
+        usePreset ? .preset(preset) : .custom(pattern)
+    }
+
+    public mutating func load(_ choice: DateFormatChoice) {
+        switch choice {
+        case let .preset(value):
+            usePreset = true
+            preset = value
+        case let .custom(value):
+            usePreset = false
+            pattern = value
+        }
+    }
+}
+
 /// The whole of the app's state: the files in the table, the chosen function
 /// and its parameters, the options, and the saved presets and history. Views
 /// read and bind to it; all file-system work funnels through `performRename`.
@@ -39,7 +70,9 @@ public final class AppModel {
     public var isShowingHistory = false
 
     // Which function, and its editable parameters.
-    public var kind: FunctionKind = .prepend
+    public var kind: FunctionKind = .prepend {
+        didSet { analyzeIfNeeded() }
+    }
     // Hide Extensions defaults on so every function operates on the name and
     // leaves the extension intact; turn it off to deliberately edit extensions
     // (e.g. Replace/Regex, or replacing the whole name including its extension).
@@ -78,10 +111,16 @@ public final class AppModel {
     // Date.
     public var dateSource: DateSourceKind = .fileCreated
     public var customDate = Date()
-    public var usePresetDate = true
-    public var datePreset: DatePreset = .isoDash
-    public var customDatePattern = "yyyy-MM-dd"
+    public var dateFormat = DateFormatFields(.preset(.isoDash))
     public var datePlacement: Placement = .prepend
+
+    // Smart Name: the template and its date format, and what reading each
+    // file found.
+    public var smartTemplate = smartDefaults.template
+    public var smartDateFormat = DateFormatFields(smartDefaults.dateFormat)
+    public var smartTextCase = smartDefaults.textCase
+    private static let smartDefaults = SmartNameConfig()
+    public let analysis: DocumentAnalysis
 
     // Presets and history, persisted as JSON.
     public var presets: [Preset] = []
@@ -96,12 +135,14 @@ public final class AppModel {
     public init(
         provider: FileMetadataProvider = SystemFileMetadataProvider(),
         store: PersistenceStore = PersistenceStore(),
+        summarizer: DocumentSummarizer = AppleIntelligenceSummarizer(),
         moveItem: @escaping (URL, URL) throws -> Void = {
             try FileManager.default.moveItem(at: $0, to: $1)
         }
     ) {
         self.provider = provider
         self.store = store
+        self.analysis = DocumentAnalysis(summarizer: summarizer)
         self.moveItem = moveItem
         self.presets = store.loadPresets()
         self.history = store.loadHistory()
@@ -129,6 +170,10 @@ public final class AppModel {
         case .cleanUp: return .cleanUp(cleanUp)
         case .sequence: return .sequence(sequence)
         case .date: return .date(dateConfig)
+        case .smartName:
+            return .smartName(
+                SmartNameConfig(
+                    template: smartTemplate, dateFormat: smartDateFormat.choice, textCase: smartTextCase))
         }
     }
 
@@ -139,14 +184,38 @@ public final class AppModel {
         case .fileCreated: source = .fileCreated
         case .exif: source = .exif
         }
-        let format: DateFormatChoice =
-            usePresetDate ? .preset(datePreset) : .custom(customDatePattern)
-        return DateConfig(source: source, format: format, placement: datePlacement)
+        return DateConfig(source: source, format: dateFormat.choice, placement: datePlacement)
     }
 
     /// The live plan, recomputed from the current files, function and options.
     public var plan: [PlannedRename] {
-        RenameEngine.plan(items: items, function: function, options: options, provider: provider)
+        RenameEngine.plan(items: items, function: function, options: options, provider: planProvider)
+    }
+
+    /// The provider the plan reads, with what Smart Name found for each file
+    /// in place of the disk read: a summary already carries its fallback date,
+    /// so typing a template never goes to the disk. Only Smart Name reads it.
+    private var planProvider: FileMetadataProvider {
+        guard kind == .smartName else { return provider }
+        let summaries = analysis.summaries
+        let byURL = Dictionary(
+            items.compactMap { item in summaries[item.id].map { (item.url, $0) } },
+            uniquingKeysWith: { first, _ in first })
+        return SummarizedMetadataProvider(base: provider, documents: byURL)
+    }
+
+    /// Read every file Smart Name hasn't yet — only while it is the chosen
+    /// function, so the model never runs for a rename that doesn't use it.
+    /// Called as files arrive and the function changes, and when the app comes
+    /// forward, which is when Apple Intelligence may have become ready.
+    public func analyzeIfNeeded() {
+        guard kind == .smartName else { return }
+        analysis.analyze(items)
+    }
+
+    /// Smart Name's progress for a row; nil for every other function.
+    public func readingStatus(for id: FileItem.ID) -> DocumentAnalysis.Status? {
+        kind == .smartName ? analysis.status[id] : nil
     }
 
     // MARK: - File list
@@ -159,6 +228,7 @@ public final class AppModel {
         for url in urls where seen.insert(Self.identityKey(url)).inserted {
             items.append(FileItem(url: url))
         }
+        analyzeIfNeeded()
     }
 
     /// The folder resolved through symlinks plus the file's own name, so two
@@ -177,11 +247,13 @@ public final class AppModel {
     public func remove(ids: Set<FileItem.ID>) {
         items.removeAll { ids.contains($0.id) }
         selection.subtract(ids)
+        analysis.forget(ids)
     }
 
     public func clear() {
         items.removeAll()
         selection.removeAll()
+        analysis.cancelAll()
     }
 
     public func setEnabled(_ enabled: Bool, for id: FileItem.ID) {
@@ -368,6 +440,10 @@ public final class AppModel {
         case let .cleanUp(config): cleanUp = config
         case let .sequence(config): sequence = config
         case let .date(config): loadDate(config)
+        case let .smartName(config):
+            smartTemplate = config.template
+            smartDateFormat.load(config.dateFormat)
+            smartTextCase = config.textCase
         }
     }
 
@@ -379,14 +455,22 @@ public final class AppModel {
         case .fileCreated: dateSource = .fileCreated
         case .exif: dateSource = .exif
         }
-        switch config.format {
-        case let .preset(preset):
-            usePresetDate = true
-            datePreset = preset
-        case let .custom(pattern):
-            usePresetDate = false
-            customDatePattern = pattern
-        }
+        dateFormat.load(config.format)
         datePlacement = config.placement
+    }
+}
+
+/// Smart Name's findings as file metadata. Smart Name reads nothing else, so
+/// this never asks the base provider (a disk and ImageIO read per file).
+private struct SummarizedMetadataProvider: FileMetadataProvider {
+    let base: FileMetadataProvider
+    let documents: [URL: DocumentSummary]
+
+    func metadata(for url: URL) -> FileMetadata {
+        FileMetadata(document: documents[url])
+    }
+
+    func fileExists(at url: URL) -> Bool {
+        base.fileExists(at: url)
     }
 }

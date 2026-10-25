@@ -10,24 +10,8 @@ import Testing
 @Suite("AppDelegate: files from Finder")
 struct AppDelegateTests {
     /// A throwaway folder of empty files, removed on deinit.
-    private final class Sandbox {
-        let root: URL
-        init(_ paths: [String]) throws {
-            root = URL(filePath: NSTemporaryDirectory())
-                .appending(component: "fnc-delegate-\(UUID().uuidString)")
-            for path in paths {
-                let url = root.appending(path: path)
-                try FileManager.default.createDirectory(
-                    at: url.deletingLastPathComponent(), withIntermediateDirectories: true)
-                FileManager.default.createFile(atPath: url.path(percentEncoded: false), contents: Data())
-            }
-        }
-        deinit { try? FileManager.default.removeItem(at: root) }
-    }
-
     private func makeDelegate(in sandbox: Sandbox) -> AppDelegate {
-        let store = PersistenceStore(directory: sandbox.root.appending(component: "store"))
-        return AppDelegate(model: AppModel(store: store))
+        AppDelegate(model: makeTestModel(storeIn: sandbox.url("store")))
     }
 
     @Test("Open With adds the files, and a folder's files")

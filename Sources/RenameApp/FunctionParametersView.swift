@@ -35,17 +35,7 @@ struct FunctionParametersView: View {
                 insertControls
             case .changeCase:
                 row("Case") {
-                    plainPicker($model.textCase, width: 200) {
-                        Text("Title Case").tag(TextCase.title)
-                        Text("lowercase").tag(TextCase.lower)
-                        Text("UPPERCASE").tag(TextCase.upper)
-                        Divider()
-                        Text("snake_case").tag(TextCase.snake)
-                        Text("kebab-case").tag(TextCase.kebab)
-                        Text("camelCase").tag(TextCase.camel)
-                        Text("PascalCase").tag(TextCase.pascal)
-                        Text("SCREAMING_SNAKE").tag(TextCase.screamingSnake)
-                    }
+                    plainPicker($model.textCase, width: 200) { caseOptions { $0 } }
                 }
             case .cleanUp:
                 cleanUpControls
@@ -53,6 +43,8 @@ struct FunctionParametersView: View {
                 sequenceControls
             case .date:
                 dateControls
+            case .smartName:
+                smartNameControls
             }
         }
         .textFieldStyle(.roundedBorder)
@@ -163,23 +155,93 @@ struct FunctionParametersView: View {
                     .labelsHidden()
             }
         }
+        dateFormatRow($model.dateFormat)
+        row("Placement") { placementPicker($model.datePlacement) }
+    }
+
+    // MARK: - Smart Name
+
+    /// The settings show whether or not the model is ready, so a template can
+    /// be set up (or saved as a preset) before Apple Intelligence is.
+    @ViewBuilder private var smartNameControls: some View {
+        field("Template", text: $model.smartTemplate, prompt: "{date} - {title}")
+        row("") {
+            Text(
+                "{date} the document’s date, or the file’s · {title} what it is · {from} who it’s from · {name} its name now"
+            )
+            .font(.caption)
+            .foregroundStyle(.secondary)
+        }
+        dateFormatRow($model.smartDateFormat)
+        row("Case") {
+            // Applies to what was read ({title}, {from}), not the template's text.
+            plainPicker($model.smartTextCase, width: 200) {
+                Text("As written").tag(TextCase?.none)
+                Divider()
+                caseOptions { Optional($0) }
+            }
+        }
+        row("") {
+            if let explanation = model.analysis.availability.explanation {
+                Label(explanation, systemImage: "apple.intelligence")
+                    .foregroundStyle(.secondary)
+            } else {
+                smartNameProgress
+            }
+        }
+    }
+
+    /// How far reading has got, so a long batch visibly moves. Read on device:
+    /// say so, as that is what makes handing over documents comfortable.
+    @ViewBuilder private var smartNameProgress: some View {
+        let pending = model.analysis.pendingCount
+        if pending > 0 {
+            HStack(spacing: 6) {
+                ProgressView().controlSize(.small)
+                Text("Reading \(pending == 1 ? "1 document" : "\(pending) documents")…")
+            }
+            .foregroundStyle(.secondary)
+        } else {
+            Label("Files are read on this Mac by Apple Intelligence.", systemImage: "lock")
+                .font(.caption)
+                .foregroundStyle(.secondary)
+        }
+    }
+
+    // MARK: - Building blocks
+
+    /// The Change Case styles as picker items, tagged by `tag`. Shared by
+    /// Change Case and Smart Name.
+    @ViewBuilder
+    private func caseOptions<Tag: Hashable>(_ tag: (TextCase) -> Tag) -> some View {
+        Text("Title Case").tag(tag(.title))
+        Text("lowercase").tag(tag(.lower))
+        Text("UPPERCASE").tag(tag(.upper))
+        Divider()
+        Text("snake_case").tag(tag(.snake))
+        Text("kebab-case").tag(tag(.kebab))
+        Text("camelCase").tag(tag(.camel))
+        Text("PascalCase").tag(tag(.pascal))
+        Text("SCREAMING_SNAKE").tag(tag(.screamingSnake))
+    }
+
+    /// A date format: one of the presets, or a pattern typed in. Shared by
+    /// Date and Smart Name.
+    private func dateFormatRow(_ format: Binding<DateFormatFields>) -> some View {
         row("Format") {
-            Toggle("Use preset", isOn: $model.usePresetDate)
-            if model.usePresetDate {
-                plainPicker($model.datePreset, width: 160) {
+            Toggle("Use preset", isOn: format.usePreset)
+            if format.wrappedValue.usePreset {
+                plainPicker(format.preset, width: 160) {
                     ForEach(DatePreset.allCases, id: \.self) { preset in
                         Text(preset.rawValue).tag(preset)
                     }
                 }
             } else {
-                TextField("Pattern", text: $model.customDatePattern)
+                TextField("Pattern", text: format.pattern)
                     .frame(width: 160, alignment: .leading)
             }
         }
-        row("Placement") { placementPicker($model.datePlacement) }
     }
-
-    // MARK: - Building blocks
 
     private func placementPicker(_ selection: Binding<Placement>) -> some View {
         segmented(selection, width: 280) {

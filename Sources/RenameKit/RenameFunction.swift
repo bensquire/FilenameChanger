@@ -30,7 +30,7 @@ public enum TextCase: String, Sendable, CaseIterable, Codable {
     /// Transform a name's base into this case.
     func apply(to text: String) -> String {
         switch self {
-        case .title: return text.localizedCapitalized
+        case .title: return Self.titleCased(text)
         case .lower: return text.localizedLowercase
         case .upper: return text.localizedUppercase
         case .snake: return join(text, with: "_") { $0.localizedLowercase }
@@ -72,6 +72,58 @@ public enum TextCase: String, Sendable, CaseIterable, Codable {
             }
             .joined()
     }
+
+    /// Title Case that respects how words were written. Each word gets a
+    /// capital first letter, except short joining words ("of", "the") after the
+    /// first. A short all-capitals word is an acronym and is kept ("VAT",
+    /// "BT"); a longer one is lowered first ("PHOTO" → "Photo"); a mixed-case
+    /// one is kept as written ("iPhone", "eBay"). A name in capitals
+    /// throughout is shouting, not acronyms, so it is lowered first.
+    /// Separators are kept: "my_holiday-photo" → "My_Holiday-Photo".
+    public static func titleCased(_ text: String) -> String {
+        let shouting = isShouting(text)
+        var result = ""
+        var word = ""
+        var isFirstWord = true
+        func flush() {
+            guard !word.isEmpty else { return }
+            result += titledWord(shouting ? word.localizedLowercase : word, isFirst: isFirstWord)
+            isFirstWord = false
+            word = ""
+        }
+        for character in text {
+            if character.isLetter || character.isNumber || character == "'" || character == "’" {
+                word.append(character)
+            } else {
+                flush()
+                result.append(character)
+            }
+        }
+        flush()
+        return result
+    }
+
+    /// Written in capitals throughout, with at least one capitalised word too
+    /// long to be an acronym: "ACME ENERGY LTD", but not "BT" or "VAT".
+    private static func isShouting(_ text: String) -> Bool {
+        guard !text.contains(where: \.isLowercase) else { return false }
+        return text.split(whereSeparator: { !$0.isLetter }).contains { $0.count > 3 }
+    }
+
+    private static func titledWord(_ word: String, isFirst: Bool) -> String {
+        let lowered = word.localizedLowercase
+        if !isFirst, minorWords.contains(lowered) { return lowered }
+        let letters = word.filter(\.isLetter)
+        let hasUpper = letters.contains(where: \.isUppercase)
+        let hasLower = letters.contains(where: \.isLowercase)
+        if hasUpper && hasLower { return word }  // iPhone, eBay, McDonald
+        if hasUpper && letters.count <= 3 { return word }  // VAT, BT, PDF
+        return capitalized(lowered)
+    }
+
+    private static let minorWords: Set<String> = [
+        "a", "an", "and", "as", "at", "by", "for", "in", "of", "on", "or", "the", "to",
+    ]
 
     private static func capitalized(_ word: String) -> String {
         guard let first = word.first else { return word }
@@ -219,6 +271,27 @@ public struct CleanUpConfig: Sendable, Equatable, Codable {
     }
 }
 
+/// Smart Name: a template filled from what reading the file found. Tokens are
+/// `{date}` (the document's date, or the file's when it states none),
+/// `{title}`, `{from}` (who sent or issued it) and `{name}` (the current name).
+public struct SmartNameConfig: Sendable, Equatable, Codable {
+    public var template: String
+    public var dateFormat: DateFormatChoice
+    /// The case `{title}` and `{from}` are put in; nil keeps them as the
+    /// document writes them. The template's own text, the date and `{name}`
+    /// are never re-cased.
+    public var textCase: TextCase?
+
+    public init(
+        template: String = "{date} - {title}", dateFormat: DateFormatChoice = .preset(.compact),
+        textCase: TextCase? = .title
+    ) {
+        self.template = template
+        self.dateFormat = dateFormat
+        self.textCase = textCase
+    }
+}
+
 /// The rename behaviours, one case each. Adding a behaviour is a new case and
 /// its arm in `proposedBaseName` — never a flag threaded through the others.
 public enum RenameFunction: Sendable, Equatable, Codable {
@@ -235,23 +308,32 @@ public enum RenameFunction: Sendable, Equatable, Codable {
     case sequence(SequenceConfig)
     case date(DateConfig)
     case cleanUp(CleanUpConfig)
+    case smartName(SmartNameConfig)
 
     /// Whether this function must keep the file extension intact even when Hide
     /// Extensions is off. The word-splitting Change Case styles do — otherwise
     /// they would fold the extension into the name — so the engine always
-    /// splits the extension off before applying them.
+    /// splits the extension off before applying them. Smart Name builds a whole
+    /// new name, which would otherwise drop the extension.
     public var preservesExtension: Bool {
-        if case let .changeCase(textCase) = self { return textCase.operatesOnWords }
-        return false
+        switch self {
+        case let .changeCase(textCase): return textCase.operatesOnWords
+        case .smartName: return true
+        default: return false
+        }
     }
 
-    /// Whether `proposedBaseName` reads the file's metadata — only a Date
-    /// stamp taken from the file or its EXIF does. The engine skips the
+    /// Whether `proposedBaseName` reads the file's metadata — a Date stamp
+    /// taken from the file or its EXIF, and Smart Name. The engine skips the
     /// metadata read for everything else.
     var readsMetadata: Bool {
-        guard case let .date(config) = self else { return false }
-        if case .custom = config.source { return false }
-        return true
+        switch self {
+        case let .date(config):
+            if case .custom = config.source { return false }
+            return true
+        case .smartName: return true
+        default: return false
+        }
     }
 
     /// The proposed name for the working string `base` (the name without its
@@ -306,6 +388,9 @@ public enum RenameFunction: Sendable, Equatable, Codable {
 
         case let .date(config):
             return dateName(base: base, config: config, metadata: context.metadata)
+
+        case let .smartName(config):
+            return smartName(base: base, config: config, metadata: context.metadata)
         }
     }
 
@@ -356,8 +441,7 @@ public enum RenameFunction: Sendable, Equatable, Codable {
     private static func cleanUp(_ base: String, config: CleanUpConfig) -> String {
         var result = base
         if config.collapseWhitespace {
-            result = result.replacing(whitespaceRun, with: " ")
-            result = result.trimmingCharacters(in: .whitespaces)
+            result = collapsingWhitespace(result)
         }
         if config.replaceSpaces {
             result = result.replacingOccurrences(of: " ", with: config.spaceReplacement)
@@ -443,17 +527,91 @@ public enum RenameFunction: Sendable, Equatable, Codable {
         }
         // No date available (e.g. EXIF absent): skip the row.
         guard let date else { return nil }
-        let pattern: String
-        switch config.format {
-        case let .preset(preset): pattern = preset.rawValue
-        case let .custom(custom): pattern = custom
-        }
-        let stamp = DateStamp.string(from: date, pattern: pattern)
+        let stamp = DateStamp.string(from: date, pattern: config.format.pattern)
         guard !stamp.isEmpty else { return nil }
         switch config.placement {
         case .prepend: return stamp + base
         case .append: return base + stamp
         case .replaceAll: return stamp
+        }
+    }
+
+    // MARK: - Smart Name
+
+    /// Fill the template from the document's summary. A file not yet read (or
+    /// that couldn't be) has no summary and is skipped until it has one.
+    private func smartName(base: String, config: SmartNameConfig, metadata: FileMetadata) -> String? {
+        guard let document = metadata.document else { return nil }
+        // Literal text and filled tokens, in template order. Filled in one pass,
+        // so a title that happens to contain "{name}" stays as written.
+        var pieces: [(text: String, isLiteral: Bool)] = []
+        var cursor = config.template.startIndex
+        for match in config.template.matches(of: Self.smartNameToken) {
+            pieces.append((String(config.template[cursor..<match.range.lowerBound]), true))
+            cursor = match.range.upperBound
+            let value: String
+            switch match.output.1 {
+            case "date":
+                // No date to stamp (the summarizer falls back to the file's own).
+                guard let date = document.date else { return nil }
+                value = DateStamp.string(from: date, pattern: config.dateFormat.pattern)
+            case "title": value = Self.fileSafe(config.recased(document.title))
+            case "from": value = Self.fileSafe(config.recased(document.from ?? ""))
+            default: value = base
+            }
+            pieces.append((value, false))
+        }
+        pieces.append((String(config.template[cursor...]), true))
+        // A token with nothing to say (no sender found) takes its separator
+        // along — the one before it, or after it when it leads — so
+        // "{date} - {from} - {title}" never leaves " -  - ". Only that
+        // literal is touched; the values keep their own punctuation.
+        for index in pieces.indices where !pieces[index].isLiteral && pieces[index].text.isEmpty {
+            if pieces[..<index].contains(where: { !$0.text.isEmpty }) {
+                pieces[index - 1].text = String(
+                    pieces[index - 1].text.reversed().drop(while: Self.isSeparator).reversed())
+            } else if index + 1 < pieces.count {
+                pieces[index + 1].text = String(pieces[index + 1].text.drop(while: Self.isSeparator))
+            }
+        }
+        return pieces.map(\.text).joined()
+    }
+
+    private static func isSeparator(_ character: Character) -> Bool {
+        " -_.,".contains(character)
+    }
+
+    /// See `whitespaceRun` for why sharing a `Regex` is safe.
+    nonisolated(unsafe) private static let smartNameToken = /\{(date|title|name|from)\}/
+    nonisolated(unsafe) private static let pathSeparator = /[\/:]/
+
+    /// Text from the document as it can sit in a file name: "/" and ":" (a
+    /// path separator, and Finder's display of one) become "-", and whitespace
+    /// runs one space.
+    static func fileSafe(_ text: String) -> String {
+        collapsingWhitespace(text.replacing(pathSeparator, with: "-"))
+    }
+
+    /// Runs of whitespace as one space, trimmed at both ends. Shared by Clean
+    /// Up and Smart Name.
+    private static func collapsingWhitespace(_ text: String) -> String {
+        text.replacing(whitespaceRun, with: " ").trimmingCharacters(in: .whitespaces)
+    }
+}
+
+extension SmartNameConfig {
+    /// Text the model found, in the chosen case.
+    func recased(_ text: String) -> String {
+        textCase.map { $0.apply(to: text) } ?? text
+    }
+}
+
+extension DateFormatChoice {
+    /// The Unicode (UTS#35) pattern this choice formats with.
+    var pattern: String {
+        switch self {
+        case let .preset(preset): return preset.rawValue
+        case let .custom(custom): return custom
         }
     }
 }

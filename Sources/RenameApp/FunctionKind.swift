@@ -17,6 +17,7 @@ public enum FunctionKind: String, CaseIterable, Identifiable, Sendable {
     case cleanUp
     case sequence
     case date
+    case smartName
 
     public var id: String { rawValue }
 
@@ -35,6 +36,7 @@ public enum FunctionKind: String, CaseIterable, Identifiable, Sendable {
         case .cleanUp: return "Clean Up"
         case .sequence: return "Sequence"
         case .date: return "Date"
+        case .smartName: return "Smart Name"
         }
     }
 }

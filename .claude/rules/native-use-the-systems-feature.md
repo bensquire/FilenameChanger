@@ -3,7 +3,7 @@ title: Use the System's Feature, Not a Copy of It
 impact: HIGH
 impactDescription: The OS version already handles accessibility, Dark Mode, localisation and next year's macOS
 tags: [native, macos, appkit, swiftui, quick-look, finder, services, undo]
-paths: ["Sources/RenameApp/**/*.swift", "Sources/FilenameChanger/**/*.swift", "Sources/RenameKit/**/*.swift", "scripts/Info.plist.template"]
+paths: ["Sources/RenameApp/**/*.swift", "Sources/FilenameChanger/**/*.swift", "Sources/RenameKit/**/*.swift", "Sources/RenameIntelligence/**/*.swift", "scripts/Info.plist.template"]
 ---
 
 ## Use the System's Feature, Not a Copy of It

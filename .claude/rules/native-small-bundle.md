@@ -10,12 +10,14 @@ paths: ["Package.swift", "bundle.sh", "scripts/**", "icon/**"]
 
 **Impact: MEDIUM**
 
-`FilenameChanger.app` is 716 KB on disk (`du -sh`): the executable 634 KB
-(649,472 bytes) and the icon 69 KB (70,997 bytes, repacked). That is the
-stripped `-Osize` release build of 25 October 2026, Developer ID signed. `Package.swift` has no
-dependencies. The rename engine, the move sequencing, the wildcard translation
-and the persistence are this package's own code over Foundation, ImageIO,
-AppKit, SwiftUI and Quick Look, all already on every Mac. `bundle.sh` builds
+`FilenameChanger.app` is 848 KB on disk (`du -sh`): the executable 768 KB
+(782,208 bytes) and the icon 69 KB (70,997 bytes, repacked). That is the
+stripped `-Osize` release build of 25 October 2026 with Smart Name, Developer ID
+signed. Before Smart Name it was 716 KB, with a 634 KB executable. `Package.swift` has no
+dependencies. The rename engine, the move sequencing, the wildcard translation,
+the persistence and Smart Name's reader are this package's own code over
+Foundation, ImageIO, AppKit, SwiftUI, Quick Look, PDFKit, Vision and Foundation
+Models, all already on every Mac. `bundle.sh` builds
 with `-Osize` and strips the executable.
 
 That is a consequence of using the system's features and a check on it: a

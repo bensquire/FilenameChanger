@@ -107,6 +107,26 @@ struct EditFunctionTests {
     }
 
     @Test(
+        "Title Case keeps acronyms and mixed-case words, and lowers shouting",
+        arguments: [
+            ("Shopping list", "Shopping List"),
+            ("statement of account", "Statement of Account"),
+            ("VAT return for the iPhone", "VAT Return for the iPhone"),
+            ("my holiday PHOTO", "My Holiday Photo"),
+            ("MY HOLIDAY PHOTO", "My Holiday Photo"),
+            ("ACME ENERGY LTD", "Acme Energy Ltd"),
+            ("BT", "BT"),
+            // Shouting is lowered whole, so a short acronym in it goes too.
+            ("HSBC UK", "Hsbc Uk"),
+            ("my_holiday-photo", "My_Holiday-Photo"),
+            ("the end of an era", "The End of an Era"),
+            ("don't panic", "Don't Panic"),
+        ])
+    func titleCase(text: String, expected: String) {
+        #expect(TextCase.titleCased(text) == expected)
+    }
+
+    @Test(
         "word-splitting cases join across spaces, underscores, hyphens and camelCase",
         arguments: [
             // Mixed separators collapse to the chosen convention.
