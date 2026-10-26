@@ -1,19 +1,45 @@
 import Foundation
 import RenameKit
 
-/// A saved rename: a name, the function it captured, and the options in force.
+/// A saved rename: a name, its steps, and the options in force.
 public struct Preset: Identifiable, Codable, Sendable, Equatable {
     public var id: String { name }
     public var name: String
-    public var kind: FunctionKind
-    public var function: RenameFunction
+    /// The chain, in order. Never empty: a preset saved before chains is read
+    /// as one step.
+    public var steps: [RenameFunction]
     public var options: RenameOptions
 
-    public init(name: String, kind: FunctionKind, function: RenameFunction, options: RenameOptions) {
+    public init(name: String, steps: [RenameFunction], options: RenameOptions) {
         self.name = name
-        self.kind = kind
-        self.function = function
+        self.steps = steps
         self.options = options
+    }
+
+    private enum CodingKeys: String, CodingKey {
+        case name, steps, options
+        // The one function a preset held before chains.
+        case function
+    }
+
+    /// Reads both shapes, so presets saved before chains still load (an
+    /// unreadable file would be set aside as `.bak`, losing them all).
+    public init(from decoder: any Decoder) throws {
+        let container = try decoder.container(keyedBy: CodingKeys.self)
+        name = try container.decode(String.self, forKey: .name)
+        options = try container.decode(RenameOptions.self, forKey: .options)
+        if let steps = try container.decodeIfPresent([RenameFunction].self, forKey: .steps), !steps.isEmpty {
+            self.steps = steps
+        } else {
+            steps = [try container.decode(RenameFunction.self, forKey: .function)]
+        }
+    }
+
+    public func encode(to encoder: any Encoder) throws {
+        var container = encoder.container(keyedBy: CodingKeys.self)
+        try container.encode(name, forKey: .name)
+        try container.encode(steps, forKey: .steps)
+        try container.encode(options, forKey: .options)
     }
 }
 

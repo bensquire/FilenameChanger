@@ -52,6 +52,14 @@ public final class DocumentAnalysis {
         worker = Task { await drain() }
     }
 
+    /// Put what the person says a document is in place of what was read — or
+    /// of a read that failed, or one not yet done, which is then not read.
+    public func correct(_ id: FileItem.ID, to summary: DocumentSummary) {
+        queue.removeAll { $0.id == id }
+        summaries[id] = summary
+        status[id] = nil
+    }
+
     /// Drop what was found for these rows, and stop waiting to read them.
     public func forget(_ ids: Set<FileItem.ID>) {
         queue.removeAll { ids.contains($0.id) }

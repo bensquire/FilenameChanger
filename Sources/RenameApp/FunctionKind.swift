@@ -39,4 +39,24 @@ public enum FunctionKind: String, CaseIterable, Identifiable, Sendable {
         case .smartName: return "Smart Name"
         }
     }
+
+    /// The kind that edits `function`: each function is one kind's.
+    public init(_ function: RenameFunction) {
+        switch function {
+        case .prepend: self = .prepend
+        case .append: self = .append
+        case .replaceFirst: self = .replaceFirst
+        case .replaceLast: self = .replaceLast
+        case .replaceAll: self = .replaceAll
+        case .wildcard: self = .wildcard
+        case .regex: self = .regex
+        case .removeCharacters: self = .removeCharacters
+        case .insertCharacters: self = .insertCharacters
+        case .changeCase: self = .changeCase
+        case .cleanUp: self = .cleanUp
+        case .sequence: self = .sequence
+        case .date: self = .date
+        case .smartName: self = .smartName
+        }
+    }
 }

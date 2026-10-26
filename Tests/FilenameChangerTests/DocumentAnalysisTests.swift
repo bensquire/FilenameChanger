@@ -11,14 +11,14 @@ struct DocumentAnalysisTests {
     private func makeModel(_ summarizer: FakeSummarizer, names: [String]) -> AppModel {
         let model = makeTestModel(summarizer: summarizer, moveItem: { _, _ in })
         model.add(urls: names.map { URL(fileURLWithPath: "/tmp/fnc-analysis/\($0)") })
-        model.smartTemplate = "{title}"
+        model.step.smartTemplate = "{title}"
         return model
     }
 
     @Test("reading a file gives its row a name")
     func readingFillsThePlan() async {
         let model = makeModel(FakeSummarizer(titles: ["a.pdf": "Water Bill"]), names: ["a.pdf"])
-        model.kind = .smartName
+        model.step.kind = .smartName
 
         model.analyzeIfNeeded()
         await model.analysis.waitUntilIdle()
@@ -31,7 +31,7 @@ struct DocumentAnalysisTests {
         let titles = ["a.pdf": "Water Bill", "b.pdf": "Gas Bill", "c.pdf": "Payslip"]
         let summarizer = FakeSummarizer(titles: titles)
         let model = makeModel(summarizer, names: ["a.pdf", "b.pdf", "c.pdf"])
-        model.kind = .smartName
+        model.step.kind = .smartName
 
         await model.analysis.waitUntilIdle()
 
@@ -43,7 +43,7 @@ struct DocumentAnalysisTests {
     func eachFileReadOnce() async {
         let summarizer = FakeSummarizer(titles: ["a.pdf": "Water Bill"])
         let model = makeModel(summarizer, names: ["a.pdf"])
-        model.kind = .smartName
+        model.step.kind = .smartName
 
         model.analyzeIfNeeded()
         model.analyzeIfNeeded()
@@ -58,7 +58,7 @@ struct DocumentAnalysisTests {
     func summarySurvivesRename() async {
         let summarizer = FakeSummarizer(titles: ["a.pdf": "Water Bill"])
         let model = makeModel(summarizer, names: ["a.pdf"])
-        model.kind = .smartName
+        model.step.kind = .smartName
         model.analyzeIfNeeded()
         await model.analysis.waitUntilIdle()
 
@@ -74,7 +74,7 @@ struct DocumentAnalysisTests {
     @Test("a file that can't be read says why, and isn't renamed")
     func failureIsReported() async {
         let model = makeModel(FakeSummarizer(titles: [:]), names: ["a.zip"])
-        model.kind = .smartName
+        model.step.kind = .smartName
 
         model.analyzeIfNeeded()
         await model.analysis.waitUntilIdle()
@@ -87,7 +87,7 @@ struct DocumentAnalysisTests {
     @Test("removing a file forgets what was read")
     func removeForgets() async {
         let model = makeModel(FakeSummarizer(titles: ["a.pdf": "Water Bill"]), names: ["a.pdf"])
-        model.kind = .smartName
+        model.step.kind = .smartName
         model.analyzeIfNeeded()
         await model.analysis.waitUntilIdle()
 
@@ -100,7 +100,7 @@ struct DocumentAnalysisTests {
     func readsOnlyForSmartName() async {
         let summarizer = FakeSummarizer(titles: ["a.pdf": "Water Bill"])
         let model = makeModel(summarizer, names: ["a.pdf"])
-        model.kind = .date
+        model.step.kind = .date
 
         model.analyzeIfNeeded()
         await model.analysis.waitUntilIdle()
@@ -112,7 +112,7 @@ struct DocumentAnalysisTests {
     func readsOnlyWhenAvailable() async {
         let summarizer = FakeSummarizer(titles: ["a.pdf": "Water Bill"], availability: .appleIntelligenceOff)
         let model = makeModel(summarizer, names: ["a.pdf"])
-        model.kind = .smartName
+        model.step.kind = .smartName
 
         model.analyzeIfNeeded()
         await model.analysis.waitUntilIdle()

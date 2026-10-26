@@ -273,11 +273,12 @@ public struct CleanUpConfig: Sendable, Equatable, Codable {
 
 /// Smart Name: a template filled from what reading the file found. Tokens are
 /// `{date}` (the document's date, or the file's when it states none),
-/// `{title}`, `{from}` (who sent or issued it) and `{name}` (the current name).
+/// `{title}`, `{from}` (who sent or issued it), `{type}` (Bill, Statement…)
+/// and `{name}` (the current name).
 public struct SmartNameConfig: Sendable, Equatable, Codable {
     public var template: String
     public var dateFormat: DateFormatChoice
-    /// The case `{title}` and `{from}` are put in; nil keeps them as the
+    /// The case `{title}`, `{from}` and `{type}` are put in; nil keeps them as the
     /// document writes them. The template's own text, the date and `{name}`
     /// are never re-cased.
     public var textCase: TextCase?
@@ -323,15 +324,56 @@ public enum RenameFunction: Sendable, Equatable, Codable {
         }
     }
 
-    /// Whether `proposedBaseName` reads the file's metadata — a Date stamp
-    /// taken from the file or its EXIF, and Smart Name. The engine skips the
-    /// metadata read for everything else.
-    var readsMetadata: Bool {
+    /// Whether this function reads the file's own dates or EXIF: a Date stamp
+    /// taken from the file, or a Sequence sorted by date. The engine skips
+    /// that disk and ImageIO read for everything else.
+    public var readsFileDates: Bool {
         switch self {
         case let .date(config):
             if case .custom = config.source { return false }
             return true
+        case let .sequence(config): return config.sort == .fileDate || config.sort == .exifDate
+        default: return false
+        }
+    }
+
+    /// Whether this function names a file from what reading its contents
+    /// found: Smart Name, which needs the file read before it can say anything.
+    public var readsDocument: Bool {
+        switch self {
         case .smartName: return true
+        default: return false
+        }
+    }
+
+    /// Whether this function puts the files in an order of its own, so the
+    /// table's order (dragging rows) doesn't decide anything: a sorted Sequence.
+    public var reordersItems: Bool {
+        switch self {
+        case let .sequence(config): return config.sort != .custom
+        default: return false
+        }
+    }
+
+    var readsMetadata: Bool { readsFileDates || readsDocument }
+
+    /// Whether a "/" in the name this function proposes means a folder to file
+    /// the file into, rather than a mistake: a Smart Name template that has
+    /// one ("{from}/{date} - {title}"). Values read from a document never do;
+    /// `fileSafe` turns their "/" into "-".
+    public var makesFolders: Bool {
+        switch self {
+        case let .smartName(config): return config.template.contains("/")
+        default: return false
+        }
+    }
+
+    /// Whether this function can't say anything yet about a file with this
+    /// metadata, so the row must wait rather than be renamed without it:
+    /// Smart Name before the file has been read.
+    func isWaiting(for metadata: FileMetadata) -> Bool {
+        switch self {
+        case .smartName: return metadata.document == nil
         default: return false
         }
     }
@@ -394,32 +436,32 @@ public enum RenameFunction: Sendable, Equatable, Codable {
         }
     }
 
-    /// Order the items before numbering. Only Sequence reorders; everything
-    /// else keeps the table's order.
-    public func order(_ items: [FileItem], provider: FileMetadataProvider) -> [FileItem] {
-        guard case let .sequence(config) = self, config.sort != .custom else { return items }
+    /// Order the items before numbering. Only a sorted Sequence reorders
+    /// (`reordersItems`); everything else keeps the table's order.
+    /// `metadata` gives each file's dates, read once for the whole plan.
+    public func order(_ items: [FileItem], metadata: (FileItem) -> FileMetadata) -> [FileItem] {
+        guard reordersItems, case let .sequence(config) = self else { return items }
         let sorted: [FileItem]
         switch config.sort {
         case .custom:
-            return items  // Unreachable: the guard above already returns for .custom.
+            return items  // Unreachable: `reordersItems` is false for .custom.
         case .alphabetical:
             sorted = items.sorted {
                 $0.originalName.localizedStandardCompare($1.originalName) == .orderedAscending
             }
         case .fileDate, .exifDate:
-            // Read each file's date once, not on every comparison.
-            let key: (FileItem) -> Date = { item in
-                let metadata = provider.metadata(for: item.url)
-                let date = config.sort == .fileDate ? metadata.modificationDate : metadata.exifDate
-                return date ?? .distantPast
+            // Each file's date once, not on every comparison. Tie-break on name
+            // so files sharing a date (or missing one) keep a stable,
+            // run-to-run order rather than numbering arbitrarily.
+            sorted = items.map { item in
+                let dates = metadata(item)
+                let date = config.sort == .fileDate ? dates.modificationDate : dates.exifDate
+                return (item: item, key: date ?? .distantPast)
             }
-            // Tie-break on name so files sharing a date (or missing one) keep a
-            // stable, run-to-run order rather than numbering arbitrarily.
-            sorted = items.map { (item: $0, key: key($0)) }
-                .sorted {
-                    ($0.key, $0.item.originalName) < ($1.key, $1.item.originalName)
-                }
-                .map(\.item)
+            .sorted {
+                ($0.key, $0.item.originalName) < ($1.key, $1.item.originalName)
+            }
+            .map(\.item)
         }
         return config.ascending ? sorted : sorted.reversed()
     }
@@ -557,12 +599,13 @@ public enum RenameFunction: Sendable, Equatable, Codable {
                 value = DateStamp.string(from: date, pattern: config.dateFormat.pattern)
             case "title": value = Self.fileSafe(config.recased(document.title))
             case "from": value = Self.fileSafe(config.recased(document.from ?? ""))
+            case "type": value = Self.fileSafe(config.recased(document.type ?? ""))
             default: value = base
             }
             pieces.append((value, false))
         }
         pieces.append((String(config.template[cursor...]), true))
-        // A token with nothing to say (no sender found) takes its separator
+        // A token with nothing to say (no sender or type found) takes its separator
         // along — the one before it, or after it when it leads — so
         // "{date} - {from} - {title}" never leaves " -  - ". Only that
         // literal is touched; the values keep their own punctuation.
@@ -577,12 +620,14 @@ public enum RenameFunction: Sendable, Equatable, Codable {
         return pieces.map(\.text).joined()
     }
 
+    /// A "/" counts, so "{from}/{title}" with no sender files nowhere rather
+    /// than into a folder with no name.
     private static func isSeparator(_ character: Character) -> Bool {
-        " -_.,".contains(character)
+        " -_.,/".contains(character)
     }
 
     /// See `whitespaceRun` for why sharing a `Regex` is safe.
-    nonisolated(unsafe) private static let smartNameToken = /\{(date|title|name|from)\}/
+    nonisolated(unsafe) private static let smartNameToken = /\{(date|title|name|from|type)\}/
     nonisolated(unsafe) private static let pathSeparator = /[\/:]/
 
     /// Text from the document as it can sit in a file name: "/" and ":" (a

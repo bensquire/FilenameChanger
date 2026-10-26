@@ -34,7 +34,10 @@ for Apple Silicon. It is small, has no dependencies, and works offline.
 ## Rename functions
 
 Fourteen functions. Each one previews live, and a row the function doesn't
-match is simply left alone.
+match is simply left alone. **Add Step** runs up to five in order, each on the
+name the one before it left: Smart Name, then Clean Up, turns `scan0001.pdf`
+into `20260303_-_Electricity_Bill.pdf`. A step with nothing to change passes the
+name on.
 
 | Function | What it does | Example |
 |---|---|---|
@@ -48,7 +51,7 @@ match is simply left alone.
 | **Clean Up** | Replaces spaces, collapses whitespace, strips accents and removes unsafe characters (`/ \ : * ? " < > \|`) | `Café  Menu?` → `Cafe_Menu` |
 | **Sequence** | Numbers files (1–6 digits, any start) with optional text before or after the number. Prepend, append or replace. Ordered by your custom order, name, file date or EXIF date | `IMG_4021` → `Trip 001` |
 | **Date** | Stamps a chosen date, the file's creation date or its EXIF date, from six presets or a custom pattern. Prepend, append or replace | `IMG_4021` → `2026-10-25` |
-| **Smart Name** | Reads each document and names it from its contents with a template: `{date}` (the date the document gives, or the file's), `{title}`, `{from}` (who sent it) and `{name}` | `{date} - {from} - {title}`: `scan0001.pdf` → `20260303 - Acme Energy - Electricity Bill.pdf` |
+| **Smart Name** | Reads each document and names it from its contents with a template: `{date}` (the date the document gives, or the file's), `{title}`, `{from}` (who sent it), `{type}` (Bill, Statement, Letter…) and `{name}` | `{date} - {from} - {title}`: `scan0001.pdf` → `20260303 - Acme Energy - Electricity Bill.pdf` |
 
 ### Smart Name
 
@@ -59,7 +62,14 @@ documents with on-device text recognition (OCR). Everything happens on your
 Mac; no file is uploaded anywhere.
 
 If a document doesn't say who it's from, `{from}` drops out along with the
-separator in front of it, so you never get `20260303 -  - Bill`.
+separator in front of it, so you never get `20260303 -  - Bill`. `{type}` is
+one of a fixed list (Bill, Invoice, Receipt, Statement, Letter, Payslip,
+Contract, Policy, Certificate, Report, Form, Notice, Ticket, Manual), and drops
+out the same way for anything else.
+
+A `/` in the template files the document into a folder beside it, made if it
+isn't there: `{from}/{date} - {title}` puts the Acme bill in `Acme Energy/`.
+⌘Z puts the file back and removes a folder the rename made, once it's empty.
 
 **Case** re-cases `{title}` and `{from}` (Title Case by default, or **As
 written** to keep the model's wording). Title Case leaves short words like
@@ -69,7 +79,9 @@ written** to keep the model's wording). Title Case leaves short words like
 Each file is read once, in the background, and the row shows **Reading…** until
 it's done. Changing the template afterwards updates every name at once without
 reading the files again. A file it can't read is marked with the reason and
-left alone. Smart Name needs a Mac with Apple Intelligence turned on.
+left alone. If it got something wrong, right-click the row ▸ **Edit Smart
+Name Details…** to correct the title, sender, type or date; the file isn't read
+again. Smart Name needs a Mac with Apple Intelligence turned on.
 
 ### Options
 
@@ -113,7 +125,7 @@ left alone. Smart Name needs a Mac with Apple Intelligence turned on.
 - **Tick or untick** a row to include or skip it.
 - **Right-click a row** to rename that one file by hand, reveal it in Finder,
   or remove it from the list.
-- **Presets** save the current function and its settings by name, so you can
+- **Presets** save the current steps and options by name, so you can
   reapply them in one click.
 - **History** logs your last 50 rename batches, old name → new name.
 - **Everything is in the File menu** too: adding files, Rename, presets and
@@ -177,10 +189,13 @@ Sources/RenameKit/                 # the engine: pure Swift, no AppKit
   SystemFileMetadataProvider.swift #   file dates + EXIF via ImageIO
 Sources/RenameIntelligence/        # Smart Name's reader
   DocumentText.swift               #   text from PDFs, text files, and OCR via Vision
-  DocumentSummarizer.swift         #   title + date from the on-device model
+  DocumentSummarizer.swift         #   title, sender, type + date from the on-device model
 Sources/RenameApp/                 # SwiftUI views and the @Observable AppModel
   AppModel.swift                   #   state, live plan, transactional rename, undo
+  FunctionSettings.swift           #   one step as the panel edits it
+  FileMover.swift                  #   all-or-nothing moves, and the folders they make
   DocumentAnalysis.swift           #   Smart Name's queue: each file read once
+  DocumentDetailsSheet.swift       #   correcting what Smart Name read
   ContentView.swift                #   file table, toolbar, options bar
   FunctionParametersView.swift     #   per-function controls
   FileAdder.swift                  #   open panel, drops and folder expansion

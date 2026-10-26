@@ -1,7 +1,7 @@
 ---
 title: Small, With No Dependencies
 impact: MEDIUM
-impactDescription: The app is about 750 KB on disk; growth is a signal
+impactDescription: The app is about 1 MB on disk; growth is a signal
 tags: [native, macos, bundle, dependencies, size]
 paths: ["Package.swift", "bundle.sh", "scripts/**", "icon/**"]
 ---
@@ -10,10 +10,11 @@ paths: ["Package.swift", "bundle.sh", "scripts/**", "icon/**"]
 
 **Impact: MEDIUM**
 
-`FilenameChanger.app` is 848 KB on disk (`du -sh`): the executable 768 KB
-(782,208 bytes) and the icon 69 KB (70,997 bytes, repacked). That is the
-stripped `-Osize` release build of 25 October 2026 with Smart Name, Developer ID
-signed. Before Smart Name it was 716 KB, with a 634 KB executable. `Package.swift` has no
+`FilenameChanger.app` is 916 KB on disk (`du -sh`): the executable 836 KB
+(854,016 bytes) and the icon 69 KB (70,997 bytes, repacked). That is the
+stripped `-Osize` release build of 26 October 2026 with chains and Smart Name.
+Chains and Smart Name's filing and corrections added 68 KB to the executable
+(768 KB before); before Smart Name it was 716 KB, with a 634 KB executable. `Package.swift` has no
 dependencies. The rename engine, the move sequencing, the wildcard translation,
 the persistence and Smart Name's reader are this package's own code over
 Foundation, ImageIO, AppKit, SwiftUI, Quick Look, PDFKit, Vision and Foundation

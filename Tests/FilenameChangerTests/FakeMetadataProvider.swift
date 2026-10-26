@@ -34,8 +34,22 @@ func proposedName(
     options: RenameOptions = RenameOptions(),
     provider: FakeMetadataProvider = FakeMetadataProvider()
 ) -> String? {
-    let plan = RenameEngine.plan(
-        items: items([name]), function: function, options: options, provider: provider)
+    proposedName(name, steps: [function], options: options, provider: provider)
+}
+
+/// The proposed name for the single file `name` under a chain of `steps`.
+func proposedName(
+    _ name: String,
+    steps: [RenameFunction],
+    options: RenameOptions = RenameOptions(),
+    provider: FakeMetadataProvider = FakeMetadataProvider()
+) -> String? {
+    let plan = RenameEngine.plan(items: items([name]), steps: steps, options: options, provider: provider)
     guard let row = plan.first, row.willRename, row.issue == nil else { return nil }
     return row.proposedName
+}
+
+/// A provider where the file `name` has been read by Smart Name as `summary`.
+func documentProvider(_ name: String, _ summary: DocumentSummary) -> FakeMetadataProvider {
+    FakeMetadataProvider(metadataByName: [name: FileMetadata(document: summary)])
 }

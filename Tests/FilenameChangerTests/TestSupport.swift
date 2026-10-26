@@ -63,16 +63,21 @@ func makeTestModel(
         moveItem: moveItem)
 }
 
-/// A reader the tests control: a title per file name, or a failure, and a
-/// record of every file it was asked to read.
+/// A reader the tests control: what each file name says it is, or a
+/// failure, and a record of every file it was asked to read.
 actor FakeSummarizer: DocumentSummarizer {
     nonisolated let availability: ModelAvailability
-    private let titles: [String: String]
+    private let summaries: [String: DocumentSummary]
     private(set) var calls: [String] = []
 
-    init(titles: [String: String], availability: ModelAvailability = .available) {
-        self.titles = titles
+    init(summaries: [String: DocumentSummary], availability: ModelAvailability = .available) {
+        self.summaries = summaries
         self.availability = availability
+    }
+
+    /// A title per file name, and nothing else.
+    init(titles: [String: String], availability: ModelAvailability = .available) {
+        self.init(summaries: titles.mapValues { DocumentSummary(title: $0) }, availability: availability)
     }
 
     /// The "text" of a file is its name, so `summarize` can look it up.
@@ -82,8 +87,8 @@ actor FakeSummarizer: DocumentSummarizer {
 
     func summarize(_ text: String, of url: URL) async throws -> DocumentSummary {
         calls.append(text)
-        guard let title = titles[text] else { throw DocumentText.Failure.noText }
-        return DocumentSummary(title: title)
+        guard let summary = summaries[text] else { throw DocumentText.Failure.noText }
+        return summary
     }
 }
 

@@ -13,8 +13,7 @@ struct PersistenceTests {
         let temp = try Sandbox()
         let store = PersistenceStore(directory: temp.root)
         let preset = Preset(
-            name: "Add year", kind: .prepend, function: .prepend(text: "2026-"),
-            options: RenameOptions(hideExtension: true))
+            name: "Add year", steps: [.prepend(text: "2026-")], options: RenameOptions(hideExtension: true))
 
         store.savePresets([preset])
 

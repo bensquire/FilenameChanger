@@ -72,6 +72,7 @@ public struct AppleIntelligenceSummarizer: DocumentSummarizer {
         let from = facts.from.trimmingCharacters(in: .whitespacesAndNewlines)
         return DocumentSummary(
             title: String(title.prefix(80)), from: from.isEmpty ? nil : String(from.prefix(60)),
+            type: facts.type.name,
             // The document's own date, else the file's: every read row gets one.
             date: Self.date(from: facts.date)
                 ?? (try? url.resourceValues(forKeys: [.creationDateKey]))?.creationDate)
@@ -96,7 +97,8 @@ public struct AppleIntelligenceSummarizer: DocumentSummarizer {
 
     private static let instructions = """
         You name files. Read the start of a document and give what it is, who sent or \
-        issued it, and the date it was issued or written. Use only the document.
+        issued it, the date it was issued or written, and what kind of document it is. \
+        Use only the document.
         """
 
     /// "YYYY-MM-DD" as noon on that day where the person is, so formatting it
@@ -111,7 +113,7 @@ public struct AppleIntelligenceSummarizer: DocumentSummarizer {
     }
 }
 
-/// What the model is asked for: three plain fields, so the schema costs few
+/// What the model is asked for: four plain fields, so the schema costs few
 /// tokens. /documentation/foundationmodels/generating-swift-data-structures-with-guided-generation
 @Generable
 struct DocumentFacts {
@@ -122,4 +124,24 @@ struct DocumentFacts {
     var from: String
     @Guide(description: "The date the document was issued or written, as YYYY-MM-DD, or empty if none")
     var date: String
+    @Guide(description: "What kind of document it is")
+    var type: DocumentType
+}
+
+/// The kinds of document `{type}` names, as a closed list the model must pick
+/// from (a `@Generable` enumeration), so every bill is "Bill" and never
+/// "Utility Bill" one day and "Invoice" the next.
+/// /documentation/foundationmodels/generable
+@Generable
+public enum DocumentType: String, CaseIterable, Sendable {
+    case bill, invoice, receipt, statement, letter, payslip, contract, policy, certificate, report
+    case form, notice, ticket, manual, other
+
+    /// The word a name uses; nil for `other`, so `{type}` drops out.
+    public var name: String? {
+        self == .other ? nil : rawValue.capitalized
+    }
+
+    /// Every word `{type}` can be, for choosing one by hand.
+    public static var names: [String] { allCases.compactMap(\.name) }
 }

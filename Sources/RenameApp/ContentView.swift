@@ -11,6 +11,7 @@ public struct ContentView: View {
     @State private var previewItem: URL?
     @State private var renamingID: PlannedRename.ID?
     @State private var renameText = ""
+    @State private var detailsTarget: DetailsTarget?
 
     public init(model: AppModel) {
         self.model = model
@@ -48,6 +49,13 @@ public struct ContentView: View {
                 if let id = renamingID {
                     model.renameSingle(id, to: renameText, undoManager: undoManager)
                 }
+            }
+        }
+        .sheet(item: $detailsTarget) { target in
+            DocumentDetailsSheet(
+                fileName: target.fileName, summary: target.summary, fileDate: target.fileDate
+            ) {
+                model.analysis.correct(target.id, to: $0)
             }
         }
         .alert("Couldn’t rename some files", isPresented: failureAlertShown) {
@@ -98,7 +106,7 @@ public struct ContentView: View {
                 // file list only when the list isn't being sorted for Sequence.
                 // Ignore drops while a non-custom sort is active so the custom
                 // order isn't scrambled behind the sorted view.
-                guard model.kind != .sequence || model.sequence.sort == .custom else { return }
+                guard model.allowsManualOrder else { return }
                 model.moveRows(ids: droppedIDs, toOffset: index)
             }
         }
@@ -142,7 +150,7 @@ public struct ContentView: View {
         } else if case let .failed(reason) = reading {
             warningCell(proposed, reason: reason)
         } else if let issue = row.issue {
-            warningCell(proposed, reason: issueText(issue))
+            warningCell(proposed, reason: issue.explanation)
         } else if row.willRename {
             NameDiffText(original: original, proposed: proposed)
         } else {
@@ -172,6 +180,12 @@ public struct ContentView: View {
             .disabled(ids.count != 1)
         Button("Reveal in Finder") { reveal(ids) }
             .disabled(ids.isEmpty)
+        if model.readsDocuments {
+            // Fix what Smart Name read, or say what a file it couldn't read is.
+            Button("Edit Smart Name Details…") { editDetails(ids) }
+                .disabled(
+                    ids.count != 1 || ids.first.map { model.readingStatus(for: $0) == .pending } ?? true)
+        }
         Divider()
         Button("Remove") { model.remove(ids: ids) }
             .disabled(ids.isEmpty)
@@ -191,20 +205,22 @@ public struct ContentView: View {
         NSWorkspace.shared.activateFileViewerSelecting(urls)
     }
 
+    /// Open the details sheet for one row, from what it starts with now.
+    private func editDetails(_ ids: Set<PlannedRename.ID>) {
+        guard let id = ids.first, ids.count == 1, let item = model.items.first(where: { $0.id == id }) else {
+            return
+        }
+        let details = model.documentDetails(for: item)
+        detailsTarget = DetailsTarget(
+            id: id, fileName: item.originalName, summary: details.summary, fileDate: details.fileDate)
+    }
+
     private var renamingSheetShown: Binding<Bool> {
         Binding(get: { renamingID != nil }, set: { if !$0 { renamingID = nil } })
     }
 
     private var failureAlertShown: Binding<Bool> {
         Binding(get: { !model.renameFailures.isEmpty }, set: { if !$0 { model.renameFailures = [] } })
-    }
-
-    private func issueText(_ issue: RenameIssue) -> String {
-        switch issue {
-        case .collision: return "A file with this name already exists."
-        case .duplicateResult: return "Another row would get this same name."
-        case .invalidName: return "This name is empty or contains a “/”."
-        }
     }
 
     private func togglePreview(_ plan: [PlannedRename]) {
@@ -223,12 +239,13 @@ public struct ContentView: View {
     private var parameterSection: some View {
         GroupBox {
             VStack(alignment: .leading, spacing: 10) {
+                if model.steps.count > 1 {
+                    stepsRow
+                }
                 HStack(alignment: .firstTextBaseline, spacing: 10) {
-                    Text("Rename")
-                        .foregroundStyle(.secondary)
-                        .frame(width: FunctionParametersView.labelWidth, alignment: .trailing)
+                    RowLabel(model.steps.count > 1 ? "Step \(model.selectedStepIndex + 1)" : "Rename")
                     // Labelled for VoiceOver; the visible "Rename" text sits beside it.
-                    Picker("Rename function", selection: $model.kind) {
+                    Picker("Rename function", selection: $model.step.kind) {
                         ForEach(FunctionKind.allCases) { kind in
                             // Set apart: the one function that reads the files.
                             if kind == .smartName { Divider() }
@@ -237,6 +254,16 @@ public struct ContentView: View {
                     }
                     .labelsHidden()
                     .frame(width: 260, alignment: .leading)
+                    Button {
+                        model.addStep()
+                    } label: {
+                        Label("Add Step", systemImage: "plus")
+                    }
+                    .disabled(!model.canAddStep)
+                    .help(
+                        model.canAddStep
+                            ? "Run another function after this one, on the name it leaves."
+                            : "A rename takes up to \(AppModel.maxSteps) steps.")
                     Spacer()
                     presetMenu
                     Button {
@@ -253,6 +280,60 @@ public struct ContentView: View {
             .frame(maxWidth: .infinity, alignment: .leading)
         }
         .padding(16)
+    }
+
+    /// The chain, in order: pick a step to edit it below, move it, or remove
+    /// it. Shown once there is more than one.
+    private var stepsRow: some View {
+        HStack(alignment: .firstTextBaseline, spacing: 10) {
+            RowLabel("Steps")
+            // Each step named while they fit; numbered only when they don't,
+            // since the row below names the selected step's function.
+            ViewThatFits(in: .horizontal) {
+                stepPicker(named: true)
+                stepPicker(named: false)
+            }
+            ControlGroup {
+                Button {
+                    model.moveSelectedStep(by: -1)
+                } label: {
+                    Label("Move Step Earlier", systemImage: "chevron.left")
+                }
+                .disabled(model.selectedStepIndex == 0)
+                Button {
+                    model.moveSelectedStep(by: 1)
+                } label: {
+                    Label("Move Step Later", systemImage: "chevron.right")
+                }
+                .disabled(model.selectedStepIndex == model.steps.count - 1)
+            }
+            .fixedSize()
+            .help("Move this step earlier or later in the chain.")
+            Button {
+                model.removeSelectedStep()
+            } label: {
+                Label("Remove Step", systemImage: "minus")
+            }
+            .help("Remove this step from the chain.")
+        }
+    }
+
+    private func stepPicker(named: Bool) -> some View {
+        let labels = model.steps.indices.map { index in
+            named ? "\(index + 1). \(model.steps[index].kind.title)" : "\(index + 1)"
+        }
+        return Picker("Steps", selection: $model.selectedStepIndex) {
+            ForEach(labels.indices, id: \.self) { index in
+                Text(labels[index]).tag(index)
+            }
+        }
+        .labelsHidden()
+        .pickerStyle(.segmented)
+        .fixedSize()
+        // A new control whenever a label changes: the segmented control keeps
+        // its old segment widths when segments are added or renamed, so the
+        // same steps showed truncated, cramped or numbered by what came before.
+        .id(labels)
     }
 
     // MARK: - Bottom bar
@@ -357,13 +438,21 @@ public struct ContentView: View {
 /// A small modal prompt: a title, one text field, and Cancel/confirm buttons.
 /// Shared by the Save-preset and single-file-rename sheets. Dismisses itself
 /// through the environment, which drives the presenting binding closed.
+/// The row the Smart Name details sheet is open for, and what it starts from,
+/// taken once when the sheet opens.
+private struct DetailsTarget: Identifiable {
+    let id: FileItem.ID
+    let fileName: String
+    let summary: DocumentSummary?
+    let fileDate: Date?
+}
+
 private struct TextEntrySheet: View {
     let title: String
     let prompt: String
     @Binding var text: String
     let confirmLabel: String
     let onConfirm: () -> Void
-    @Environment(\.dismiss) private var dismiss
 
     var body: some View {
         VStack(alignment: .leading, spacing: 16) {
@@ -371,19 +460,51 @@ private struct TextEntrySheet: View {
             TextField(prompt, text: $text)
                 .textFieldStyle(.roundedBorder)
                 .frame(width: 300, alignment: .leading)
-            HStack {
-                Spacer()
-                Button("Cancel") { dismiss() }
-                    .keyboardShortcut(.cancelAction)
-                Button(confirmLabel) {
-                    onConfirm()
-                    dismiss()
-                }
-                .buttonStyle(.borderedProminent)
-                .keyboardShortcut(.defaultAction)
-                .disabled(text.trimmingCharacters(in: .whitespaces).isEmpty)
-            }
+            SheetButtons(
+                confirmLabel, isDisabled: text.trimmingCharacters(in: .whitespaces).isEmpty,
+                onConfirm: onConfirm)
         }
         .padding(20)
+    }
+}
+
+/// A sheet's Cancel and confirm buttons, Return and Escape on them, both
+/// closing the sheet. Shared by every sheet that asks for something.
+struct SheetButtons: View {
+    let confirmLabel: String
+    let isDisabled: Bool
+    let onConfirm: () -> Void
+    @Environment(\.dismiss) private var dismiss
+
+    init(_ confirmLabel: String, isDisabled: Bool, onConfirm: @escaping () -> Void) {
+        self.confirmLabel = confirmLabel
+        self.isDisabled = isDisabled
+        self.onConfirm = onConfirm
+    }
+
+    var body: some View {
+        HStack {
+            Spacer()
+            Button("Cancel") { dismiss() }
+                .keyboardShortcut(.cancelAction)
+            Button(confirmLabel) {
+                onConfirm()
+                dismiss()
+            }
+            .buttonStyle(.borderedProminent)
+            .keyboardShortcut(.defaultAction)
+            .disabled(isDisabled)
+        }
+    }
+}
+
+extension RenameIssue {
+    /// Why a row can’t be renamed, in words for the person: a grey row’s tooltip.
+    var explanation: String {
+        switch self {
+        case .collision: return "A file with this name already exists."
+        case .duplicateResult: return "Another row would get this same name."
+        case .invalidName: return "This name is empty, or contains a “/” or a folder that can’t be made."
+        }
     }
 }

@@ -8,9 +8,7 @@ struct SmartNameTests {
     private func provider(
         _ name: String, title: String, from: String? = nil, date: Date?
     ) -> FakeMetadataProvider {
-        FakeMetadataProvider(metadataByName: [
-            name: FileMetadata(document: DocumentSummary(title: title, from: from, date: date))
-        ])
+        documentProvider(name, DocumentSummary(title: title, from: from, date: date))
     }
 
     @Test("the default template names a file by its date and title")

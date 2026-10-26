@@ -2,7 +2,8 @@
 
 FilenameChanger is a native macOS batch file renamer, a recreation of MRR
 Software's NameChanger in SwiftUI. The user adds files, picks one of fourteen
-rename functions, and the New Name column shows every result as they type. Two
+rename functions (or a chain of them, run in order), and the New Name column
+shows every result as they type. Two
 promises follow from that, and every change is held to them:
 
 - **Nothing moves until Rename.** Every new name is planned first, and a row
@@ -17,8 +18,8 @@ promises follow from that, and every change is held to them:
 | Target | What it is |
 |---|---|
 | `Sources/RenameKit` | The engine: the fourteen functions as `RenameFunction` cases, `RenameEngine` (the plan and its collision rules), `RenameSequencer` (orders chained moves through temporary names), `TextMatching`, and `SystemFileMetadataProvider` (file dates and EXIF through ImageIO). No AppKit or SwiftUI, and it moves no files. Smart Name's findings arrive as `FileMetadata.document`, so the engine stays synchronous. |
-| `Sources/RenameIntelligence` | Smart Name's reader. `DocumentText` gets the text (the PDFKit text layer, Vision OCR for scans and images, plain text), and `AppleIntelligenceSummarizer` asks the on-device Foundation Models model for a title and date behind the `DocumentSummarizer` protocol. On device only, no Private Cloud Compute. |
-| `Sources/RenameApp` | The `@MainActor @Observable AppModel`, which alone moves files, and the views. Also the edges to the system: `AppDelegate` (Open With, the Dock icon, the Finder Service, `FILENAMECHANGER_FOLDER`), `FileAdder` (open panel, drops, folder walks), `FileCommands` (the File menu), `Persistence` (presets and history as JSON) and `DocumentAnalysis` (Smart Name's queue, which reads each row once, keyed by row id). A library, so the model is testable. |
+| `Sources/RenameIntelligence` | Smart Name's reader. `DocumentText` gets the text (the PDFKit text layer, Vision OCR for scans and images, plain text), and `AppleIntelligenceSummarizer` asks the on-device Foundation Models model for a title, sender, type and date behind the `DocumentSummarizer` protocol. On device only, no Private Cloud Compute. |
+| `Sources/RenameApp` | The `@MainActor @Observable AppModel`, which alone moves files, and the views. Also the edges to the system: `AppDelegate` (Open With, the Dock icon, the Finder Service, `FILENAMECHANGER_FOLDER`), `FileAdder` (open panel, drops, folder walks), `FileCommands` (the File menu), `Persistence` (presets and history as JSON), `DocumentAnalysis` (Smart Name's queue, which reads each row once, keyed by row id), `FileMover` (the all-or-nothing moves and the folders Smart Name files into) and `FunctionSettings` (one step as the panel edits it). A library, so the model is testable. |
 | `Sources/FilenameChanger` | The `@main` scene and nothing else. |
 | `Tests/FilenameChangerTests` | Swift Testing (`@Test`, `#expect`), not XCTest. Engine tests use `FakeMetadataProvider` and never touch the disk; the on-disk suites rename real files in temp folders. |
 | `icon/`, `scripts/` | The icon generator and `.icns`; `Info.plist.template` (the Service, the document type), `make-dmg.sh`, `repack-icns.py`. |

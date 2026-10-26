@@ -5,44 +5,61 @@ import Foundation
 /// it. Pure — all file-system knowledge comes through the injected provider —
 /// so the whole of it is unit-tested.
 public enum RenameEngine {
-    /// Build the plan. Rows come back in working order (a sequence sort
-    /// reorders them); each row carries the id of its source `FileItem`.
+    /// Build the plan for one function: a chain of one step.
     public static func plan(
         items: [FileItem],
         function: RenameFunction,
         options: RenameOptions,
         provider: FileMetadataProvider
     ) -> [PlannedRename] {
-        let working = function.order(items, provider: provider)
+        plan(items: items, steps: [function], options: options, provider: provider)
+    }
 
-        // Some functions (the word-splitting Change Case styles) must never
-        // touch the extension, even when Hide Extensions is off.
-        let hidesExtension = options.hideExtension || function.preservesExtension
+    /// Build the plan. Rows come back in working order (a sequence sort
+    /// reorders them); each row carries the id of its source `FileItem`.
+    ///
+    /// The steps run in order, each on the name the one before it left: Smart
+    /// Name, then Clean Up, then Change Case. A step that doesn't match a row
+    /// (a Replace with nothing to find) leaves the name as it is for the next
+    /// step, so a row is skipped only when the chain changes nothing.
+    public static func plan(
+        items: [FileItem],
+        steps: [RenameFunction],
+        options: RenameOptions,
+        provider: FileMetadataProvider
+    ) -> [PlannedRename] {
+        // Metadata is a disk + ImageIO read per file, and the plan reruns on
+        // every keystroke: read only when a step uses it, and once per file,
+        // shared by a Sequence's sort and the names.
+        let readsMetadata = steps.contains(where: \.readsMetadata)
+        var metadataCache: [UUID: FileMetadata] = [:]
+        func metadata(for item: FileItem) -> FileMetadata {
+            guard readsMetadata else { return FileMetadata() }
+            if let cached = metadataCache[item.id] { return cached }
+            let read = provider.metadata(for: item.url)
+            metadataCache[item.id] = read
+            return read
+        }
 
-        // Metadata is a disk + ImageIO read per file, and the plan reruns on every
-        // keystroke; only a Date stamp uses it, so skip it for everything else.
-        let readsMetadata = function.readsMetadata
+        // Only Sequence reorders; with two, the later sort numbers both.
+        let working = steps.reduce(items) { items, step in step.order(items, metadata: metadata) }
 
-        // Pass one: the raw proposed name for each row, or nil to skip.
-        // `sequenceIndex` counts only enabled rows, so Sequence numbering has no
-        // gaps when a row is unchecked.
+        // Pass one: the proposed name for each row that changes, and which of
+        // those can't be a name. `sequenceIndex` counts only enabled rows, so
+        // Sequence numbering has no gaps when a row is unchecked.
         var proposedNames: [UUID: String] = [:]
+        var invalid: Set<UUID> = []
         var sequenceIndex = 0
         for item in working {
             guard item.isEnabled else { continue }
-            let (base, ext) = split(item.originalName, hideExtension: hidesExtension)
-            let metadata = readsMetadata ? provider.metadata(for: item.url) : FileMetadata()
-            let context = ItemContext(index: sequenceIndex, metadata: metadata, options: options)
+            let context = ItemContext(index: sequenceIndex, metadata: metadata(for: item), options: options)
             sequenceIndex += 1
-            guard let newBase = function.proposedBaseName(for: base, context: context) else { continue }
-            // A base emptied (or left as only spaces) would rejoin as a bare
-            // ".ext" — a hidden dotfile that seems to vanish. Propose an empty
-            // name instead, which `validate` flags: one rule for every function.
-            let name =
-                newBase.trimmingCharacters(in: .whitespaces).isEmpty
-                ? "" : join(base: newBase, ext: ext, hideExtension: hidesExtension)
-            if name != item.originalName {
-                proposedNames[item.id] = name
+            guard let proposal = chainedName(item.originalName, steps: steps, context: context) else {
+                continue
+            }
+            if proposal.path != item.originalName {
+                proposedNames[item.id] = proposal.path
+                if !proposal.isValid { invalid.insert(item.id) }
             }
         }
 
@@ -52,11 +69,11 @@ public enum RenameEngine {
             // collision. Force Unique resolves these by numbering instead.
             let batchSources = Set(working.filter(\.isEnabled).map { $0.url.caseFoldedPathKey })
             return planForcingUnique(
-                working: working, proposedNames: proposedNames,
+                working: working, proposedNames: proposedNames, invalid: invalid,
                 batchSources: batchSources, provider: provider)
         }
         return planFlaggingCollisions(
-            working: working, proposedNames: proposedNames, provider: provider)
+            working: working, proposedNames: proposedNames, invalid: invalid, provider: provider)
     }
 
     /// Rows that will actually be renamed, in the order they should run.
@@ -86,7 +103,8 @@ public enum RenameEngine {
     // MARK: - Collision strategies
 
     private static func planFlaggingCollisions(
-        working: [FileItem], proposedNames: [UUID: String], provider: FileMetadataProvider
+        working: [FileItem], proposedNames: [UUID: String], invalid: Set<UUID>,
+        provider: FileMetadataProvider
     ) -> [PlannedRename] {
         // Per proposed row: its destination key, how many rows want that key,
         // and whether a file is already on disk there. Keys are the full
@@ -109,9 +127,9 @@ public enum RenameEngine {
         // or two rows wanting the same destination — computed once up front.
         var staticIssues: [UUID: RenameIssue] = [:]
         for item in working {
-            guard let name = proposedNames[item.id], let key = destinationKeys[item.id] else { continue }
-            if let issue = validate(name) {
-                staticIssues[item.id] = issue
+            guard let key = destinationKeys[item.id] else { continue }
+            if invalid.contains(item.id) {
+                staticIssues[item.id] = .invalidName
             } else if destinationCounts[key, default: 0] > 1 {
                 staticIssues[item.id] = .duplicateResult
             }
@@ -154,7 +172,7 @@ public enum RenameEngine {
     }
 
     private static func planForcingUnique(
-        working: [FileItem], proposedNames: [UUID: String],
+        working: [FileItem], proposedNames: [UUID: String], invalid: Set<UUID>,
         batchSources: Set<String>, provider: FileMetadataProvider
     ) -> [PlannedRename] {
         var taken: Set<String> = []
@@ -162,8 +180,8 @@ public enum RenameEngine {
             guard let name = proposedNames[item.id] else {
                 return unchanged(item)
             }
-            if let issue = validate(name) {
-                return row(item, proposedName: name, willRename: false, issue: issue)
+            if invalid.contains(item.id) {
+                return row(item, proposedName: name, willRename: false, issue: .invalidName)
             }
             let unique = makeUnique(
                 name, taken: &taken, item: item, batchSources: batchSources, provider: provider)
@@ -172,6 +190,62 @@ public enum RenameEngine {
     }
 
     // MARK: - Helpers
+
+    /// What a chain makes of a file's name: folders to file it into (from a
+    /// step that makes them), and the name itself.
+    private struct Proposal {
+        var folders: [String] = []
+        var name: String
+
+        /// The name relative to the file's folder: "Acme Energy/Bill.pdf".
+        var path: String { (folders + [name]).joined(separator: "/") }
+
+        /// The name passes `validate`, and each folder is a proper name too —
+        /// not empty (a leading "/" would be the disk's root), "." or "..", or
+        /// hidden. Under a folder, a hidden file ("Bills/.pdf") is refused too.
+        var isValid: Bool {
+            guard validate(name) == nil else { return false }
+            return folders.allSatisfy { folder in
+                !folder.trimmingCharacters(in: .whitespaces).isEmpty && folder != ".."
+                    && !folder.hasPrefix(".")
+            } && (folders.isEmpty || !name.hasPrefix("."))
+        }
+    }
+
+    /// The name `steps` make of `name`, or nil to hold the row back: a step
+    /// still waiting on what it reads (Smart Name before the file is read)
+    /// mustn't let the rest of the chain rename it without that step's part.
+    /// The folders a step files into are set apart as it makes them, so the
+    /// steps after it work on the name alone, and a "/" any other step makes
+    /// stays an invalid name.
+    private static func chainedName(_ name: String, steps: [RenameFunction], context: ItemContext)
+        -> Proposal?
+    {
+        var proposal = Proposal(name: name)
+        for step in steps {
+            if step.isWaiting(for: context.metadata) { return nil }
+            // Some functions (the word-splitting Change Case styles, Smart
+            // Name) must never touch the extension, even when Hide Extensions
+            // is off.
+            let hidesExtension = context.options.hideExtension || step.preservesExtension
+            let (base, ext) = split(proposal.name, hideExtension: hidesExtension)
+            guard var newBase = step.proposedBaseName(for: base, context: context) else { continue }
+            if step.makesFolders {
+                var parts = newBase.split(separator: "/", omittingEmptySubsequences: false).map(String.init)
+                newBase = parts.removeLast()
+                proposal.folders += parts
+            }
+            // A base emptied (or left as only spaces) would rejoin as a bare
+            // ".ext" — a hidden dotfile that seems to vanish. Propose an empty
+            // name instead, which `validate` flags: one rule for every function.
+            guard !newBase.trimmingCharacters(in: .whitespaces).isEmpty else {
+                proposal.name = ""
+                return proposal
+            }
+            proposal.name = join(base: newBase, ext: ext, hideExtension: hidesExtension)
+        }
+        return proposal
+    }
 
     /// Build one plan row, copying the stable fields straight off the item so
     /// each call site only states what varies.

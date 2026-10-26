@@ -51,7 +51,7 @@ without applies always. `_sections.md` defines the sections and their order;
 
 - [native-use-the-systems-feature](native-use-the-systems-feature.md) - Open panel, Finder Service, Open With, Quick Look, UndoManager, SF Symbols, confirmationDialog
 - [native-keyboard-and-menus](native-keyboard-and-menus.md) - The shortcuts every Mac user knows; every action in the File menu
-- [native-small-bundle](native-small-bundle.md) - 848 KB, no dependencies
+- [native-small-bundle](native-small-bundle.md) - 916 KB, no dependencies
 - [native-check-apples-documentation](native-check-apples-documentation.md) - Look it up in `scrapple` before using, copying or asserting
 
 ### Communication

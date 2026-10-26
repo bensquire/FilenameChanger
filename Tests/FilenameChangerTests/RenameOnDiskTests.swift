@@ -28,8 +28,8 @@ struct RenameOnDiskTests {
         let sandbox = try Sandbox(["a.txt", "b.txt", "c.txt"])
         let model = makeModel(in: sandbox)
         model.add(urls: sandbox.urls(["a.txt", "b.txt", "c.txt"]))
-        model.kind = .prepend
-        model.prependText = "2026-"
+        model.step.kind = .prepend
+        model.step.prependText = "2026-"
 
         // Act
         model.performRename(undoManager: nil)
@@ -50,8 +50,8 @@ struct RenameOnDiskTests {
         let sandbox = try Sandbox(["a.txt", "b.txt"])
         let model = makeModel(in: sandbox)
         model.add(urls: sandbox.urls(["a.txt", "b.txt"]))
-        model.kind = .prepend
-        model.prependText = "x-"
+        model.step.kind = .prepend
+        model.step.prependText = "x-"
         let undo = UndoManager()
 
         model.performRename(undoManager: undo)
@@ -118,9 +118,9 @@ struct RenameOnDiskTests {
         let sandbox = try Sandbox(["draft.txt", "report.txt"])
         let model = makeModel(in: sandbox)
         model.add(urls: sandbox.urls(["draft.txt"]))
-        model.kind = .replaceFirst
-        model.findText = "draft"
-        model.replaceText = "report"
+        model.step.kind = .replaceFirst
+        model.step.findText = "draft"
+        model.step.replaceText = "report"
 
         model.performRename(undoManager: nil)
 
@@ -139,9 +139,9 @@ struct RenameOnDiskTests {
         sandbox.file("report.txt", contents: "PRECIOUS")
         let model = makeModel(in: sandbox)
         model.add(urls: sandbox.urls(["draft.txt"]))
-        model.kind = .replaceFirst
-        model.findText = "draft"
-        model.replaceText = "report"
+        model.step.kind = .replaceFirst
+        model.step.findText = "draft"
+        model.step.replaceText = "report"
 
         model.performRename(undoManager: nil)
 
@@ -158,8 +158,8 @@ struct RenameOnDiskTests {
         sandbox.file("1.txt", contents: "ONE")
         let model = makeModel(in: sandbox)
         model.add(urls: sandbox.urls(["2.txt", "1.txt"]))
-        model.kind = .sequence
-        model.sequence = SequenceConfig(placement: .replaceAll, digits: 1, start: 1, sort: .custom)
+        model.step.kind = .sequence
+        model.step.sequence = SequenceConfig(placement: .replaceAll, digits: 1, start: 1, sort: .custom)
 
         model.performRename(undoManager: nil)
 
@@ -180,8 +180,8 @@ struct RenameOnDiskTests {
         sandbox.file("3.txt", contents: "C")
         let model = makeModel(in: sandbox)
         model.add(urls: sandbox.urls(["1.txt", "2.txt", "3.txt"]))
-        model.kind = .sequence
-        model.sequence = SequenceConfig(placement: .replaceAll, digits: 1, start: 2, sort: .custom)
+        model.step.kind = .sequence
+        model.step.sequence = SequenceConfig(placement: .replaceAll, digits: 1, start: 2, sort: .custom)
 
         model.performRename(undoManager: nil)
 
@@ -199,8 +199,8 @@ struct RenameOnDiskTests {
         sandbox.file("1.txt", contents: "ONE")
         let model = makeModel(in: sandbox)
         model.add(urls: sandbox.urls(["2.txt", "1.txt"]))
-        model.kind = .sequence
-        model.sequence = SequenceConfig(placement: .replaceAll, digits: 1, start: 1, sort: .custom)
+        model.step.kind = .sequence
+        model.step.sequence = SequenceConfig(placement: .replaceAll, digits: 1, start: 1, sort: .custom)
         let undo = UndoManager()
 
         model.performRename(undoManager: undo)
@@ -221,8 +221,8 @@ struct RenameOnDiskTests {
         sandbox.file("photo.txt", contents: "PIXELS")
         let model = makeModel(in: sandbox)
         model.add(urls: sandbox.urls(["photo.txt"]))
-        model.kind = .changeCase
-        model.textCase = .upper
+        model.step.kind = .changeCase
+        model.step.textCase = .upper
 
         model.performRename(undoManager: nil)
 
@@ -244,8 +244,8 @@ struct RenameOnDiskTests {
             try FileManager.default.moveItem(at: from, to: to)
         }
         model.add(urls: sandbox.urls(["a.txt", "b.txt"]))
-        model.kind = .prepend
-        model.prependText = "x-"
+        model.step.kind = .prepend
+        model.step.prependText = "x-"
 
         // Act
         model.performRename(undoManager: nil)

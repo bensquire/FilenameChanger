@@ -62,21 +62,26 @@ public struct FileMetadata: Sendable, Equatable {
     }
 }
 
-/// A document's title, who it is from, and its date (the date it was issued
-/// or written), as read from its contents.
+/// A document's title, who it is from, what kind of document it is, and its
+/// date (the date it was issued or written), as read from its contents.
 public struct DocumentSummary: Sendable, Equatable {
     public var title: String
     /// The company, organisation or person that sent or issued it; nil when
     /// the document doesn't say.
     public var from: String?
+    /// What kind of document it is, in a word or two from a fixed list
+    /// ("Bill", "Statement", "Payslip"), so names sort together; nil when it
+    /// is none of them.
+    public var type: String?
     /// The date the document gives, or the file's creation date when it gives
     /// none (decided when it is read, so the plan never goes to the disk).
     /// Nil only when neither exists.
     public var date: Date?
 
-    public init(title: String, from: String? = nil, date: Date? = nil) {
+    public init(title: String, from: String? = nil, type: String? = nil, date: Date? = nil) {
         self.title = title
         self.from = from
+        self.type = type
         self.date = date
     }
 }
@@ -97,7 +102,9 @@ public enum RenameIssue: Sendable, Equatable {
     case collision
     /// Two rows in the batch resolve to the same name.
     case duplicateResult
-    /// The proposed name is empty or contains a path separator.
+    /// The proposed name is empty, or contains a path separator where folders
+    /// aren't being made, or names a folder that can't be one ("", ".", "..",
+    /// or hidden).
     case invalidName
 }
 
@@ -155,11 +162,14 @@ extension URL {
     }
 
     /// Where the file at this URL lands when renamed to `name`: a sibling in
-    /// the same folder. The one definition both the plan's collision checks
-    /// and the move itself use. Built from the name alone, as
-    /// `appendingPathComponent` may touch the disk to check for a folder.
-    /// /documentation/foundation/url/appendingpathcomponent(_:)
+    /// the same folder, or inside a folder there when `name` has a "/"
+    /// ("Barclays/Statement.pdf", from a Smart Name template that files into
+    /// folders). The one definition both the plan's collision checks and the
+    /// move itself use. Built from the name alone, as `appendingPathComponent`
+    /// may touch the disk to check for a folder; `appending(path:)` takes "/"
+    /// as a separator, where `appending(component:)` would encode it.
+    /// /documentation/foundation/url/appending(path:directoryhint:)
     public func renamed(to name: String) -> URL {
-        deletingLastPathComponent().appending(component: name)
+        deletingLastPathComponent().appending(path: name, directoryHint: .notDirectory)
     }
 }

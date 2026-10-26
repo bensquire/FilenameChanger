@@ -3,55 +3,6 @@ import Observation
 import RenameIntelligence
 import RenameKit
 
-/// UI-facing mode for Remove Characters.
-public enum RemoveModeKind: String, CaseIterable, Sendable {
-    case range
-    case fromEnd
-}
-
-/// UI-facing mode for Insert Characters.
-public enum InsertModeKind: String, CaseIterable, Sendable {
-    case atIndex
-    case fromEnd
-}
-
-/// UI-facing mode for the Date source.
-public enum DateSourceKind: String, CaseIterable, Sendable {
-    case custom
-    case fileCreated
-    case exif
-}
-
-/// A date format as the panel edits it: a preset, or a typed pattern that is
-/// kept while the preset is in use, so switching back and forth loses neither.
-/// Shared by Date and Smart Name.
-public struct DateFormatFields: Equatable, Sendable {
-    public var usePreset = true
-    public var preset: DatePreset = .isoDash
-    public var pattern = "yyyy-MM-dd"
-
-    /// Starts from `choice`; a preset also seeds the pattern field with itself.
-    public init(_ choice: DateFormatChoice) {
-        if case let .preset(value) = choice { pattern = value.rawValue }
-        load(choice)
-    }
-
-    public var choice: DateFormatChoice {
-        usePreset ? .preset(preset) : .custom(pattern)
-    }
-
-    public mutating func load(_ choice: DateFormatChoice) {
-        switch choice {
-        case let .preset(value):
-            usePreset = true
-            preset = value
-        case let .custom(value):
-            usePreset = false
-            pattern = value
-        }
-    }
-}
-
 /// The whole of the app's state: the files in the table, the chosen function
 /// and its parameters, the options, and the saved presets and history. Views
 /// read and bind to it; all file-system work funnels through `performRename`.
@@ -69,57 +20,23 @@ public final class AppModel {
     public var isSavingPreset = false
     public var isShowingHistory = false
 
-    // Which function, and its editable parameters.
-    public var kind: FunctionKind = .prepend {
-        didSet { analyzeIfNeeded() }
+    /// The rename as a chain of steps, run in order; one step is a plain
+    /// rename. Never empty.
+    public var steps = [FunctionSettings()] {
+        didSet {
+            selectedStepIndex = min(selectedStepIndex, steps.count - 1)
+            // Only when a step that reads documents arrives: not on every
+            // keystroke in a step's fields. New files are read as they're added.
+            if !oldValue.contains(where: { $0.function.readsDocument }) { analyzeIfNeeded() }
+        }
     }
+    /// The step the panel is editing; always one of `steps`.
+    public var selectedStepIndex = 0
     // Hide Extensions defaults on so every function operates on the name and
     // leaves the extension intact; turn it off to deliberately edit extensions
     // (e.g. Replace/Regex, or replacing the whole name including its extension).
     public var options = RenameOptions(hideExtension: true)
-
-    // Prepend / Append.
-    public var prependText = ""
-    public var appendText = ""
-
-    // Replace family + wildcard + regex (find/replace reused across them).
-    public var findText = ""
-    public var replaceText = ""
-
-    // Remove Characters.
-    public var removeMode: RemoveModeKind = .range
-    public var removeLocation = 0
-    public var removeLength = 1
-    public var removeFromEnd = 1
-
-    // Insert Characters.
-    public var insertText = ""
-    public var insertMode: InsertModeKind = .atIndex
-    public var insertIndex = 0
-    public var padEnabled = false
-    public var padLength = 1
-
-    // Change Case.
-    public var textCase: TextCase = .title
-
-    // Clean Up.
-    public var cleanUp = CleanUpConfig()
-
-    // Sequence.
-    public var sequence = SequenceConfig()
-
-    // Date.
-    public var dateSource: DateSourceKind = .fileCreated
-    public var customDate = Date()
-    public var dateFormat = DateFormatFields(.preset(.isoDash))
-    public var datePlacement: Placement = .prepend
-
-    // Smart Name: the template and its date format, and what reading each
-    // file found.
-    public var smartTemplate = smartDefaults.template
-    public var smartDateFormat = DateFormatFields(smartDefaults.dateFormat)
-    public var smartTextCase = smartDefaults.textCase
-    private static let smartDefaults = SmartNameConfig()
+    /// What Smart Name read in each file.
     public let analysis: DocumentAnalysis
 
     // Presets and history, persisted as JSON.
@@ -128,9 +45,8 @@ public final class AppModel {
 
     private let provider: FileMetadataProvider
     private let store: PersistenceStore
-    /// The one call that changes the user's files. `FileManager.moveItem`
-    /// never overwrites; injected so tests can make a move fail on demand.
-    private let moveItem: (URL, URL) throws -> Void
+    /// The one thing that changes the user's files.
+    private let mover: FileMover
 
     public init(
         provider: FileMetadataProvider = SystemFileMetadataProvider(),
@@ -143,79 +59,98 @@ public final class AppModel {
         self.provider = provider
         self.store = store
         self.analysis = DocumentAnalysis(summarizer: summarizer)
-        self.moveItem = moveItem
+        self.mover = FileMover(moveItem: moveItem)
         self.presets = store.loadPresets()
         self.history = store.loadHistory()
     }
 
-    /// The `RenameFunction` assembled from the current kind and parameters.
-    public var function: RenameFunction {
-        switch kind {
-        case .prepend: return .prepend(text: prependText)
-        case .append: return .append(text: appendText)
-        case .replaceFirst: return .replaceFirst(find: findText, with: replaceText)
-        case .replaceLast: return .replaceLast(find: findText, with: replaceText)
-        case .replaceAll: return .replaceAll(find: findText, with: replaceText)
-        case .wildcard: return .wildcard(find: findText, with: replaceText)
-        case .regex: return .regex(pattern: findText, template: replaceText)
-        case .removeCharacters:
-            switch removeMode {
-            case .range: return .removeCharacters(.range(location: removeLocation, length: removeLength))
-            case .fromEnd: return .removeCharacters(.fromEnd(count: removeFromEnd))
-            }
-        case .insertCharacters:
-            let mode: InsertMode = insertMode == .atIndex ? .atIndex(insertIndex) : .fromEnd
-            return .insertCharacters(text: insertText, mode: mode, padToLength: padEnabled ? padLength : nil)
-        case .changeCase: return .changeCase(textCase)
-        case .cleanUp: return .cleanUp(cleanUp)
-        case .sequence: return .sequence(sequence)
-        case .date: return .date(dateConfig)
-        case .smartName:
-            return .smartName(
-                SmartNameConfig(
-                    template: smartTemplate, dateFormat: smartDateFormat.choice, textCase: smartTextCase))
-        }
+    /// The step the panel is editing. Its kind is the function picker.
+    public var step: FunctionSettings {
+        get { steps[selectedStepIndex] }
+        set { steps[selectedStepIndex] = newValue }
     }
 
-    private var dateConfig: DateConfig {
-        let source: DateSource
-        switch dateSource {
-        case .custom: source = .custom(customDate)
-        case .fileCreated: source = .fileCreated
-        case .exif: source = .exif
-        }
-        return DateConfig(source: source, format: dateFormat.choice, placement: datePlacement)
-    }
+    /// The chain's `RenameFunction`s, in order.
+    public var functions: [RenameFunction] { steps.map(\.function) }
+
+    /// Whether a step names files from their contents (Smart Name), so the
+    /// files must be read.
+    public var readsDocuments: Bool { steps.contains { $0.function.readsDocument } }
+
+    /// Whether dragging rows changes anything: not while a step sorts the
+    /// files itself, which would scramble the order behind the sorted view.
+    public var allowsManualOrder: Bool { !steps.contains { $0.function.reordersItems } }
 
     /// The live plan, recomputed from the current files, function and options.
     public var plan: [PlannedRename] {
-        RenameEngine.plan(items: items, function: function, options: options, provider: planProvider)
+        let functions = functions
+        return RenameEngine.plan(
+            items: items, steps: functions, options: options, provider: planProvider(for: functions))
     }
 
     /// The provider the plan reads, with what Smart Name found for each file
     /// in place of the disk read: a summary already carries its fallback date,
-    /// so typing a template never goes to the disk. Only Smart Name reads it.
-    private var planProvider: FileMetadataProvider {
-        guard kind == .smartName else { return provider }
+    /// so typing a template never goes to the disk — unless another step (a
+    /// Date stamp, a date-sorted Sequence) reads the file's own dates too.
+    private func planProvider(for functions: [RenameFunction]) -> FileMetadataProvider {
+        guard functions.contains(where: \.readsDocument) else { return provider }
         let summaries = analysis.summaries
         let byURL = Dictionary(
             items.compactMap { item in summaries[item.id].map { (item.url, $0) } },
             uniquingKeysWith: { first, _ in first })
-        return SummarizedMetadataProvider(base: provider, documents: byURL)
+        return SummarizedMetadataProvider(
+            base: provider, documents: byURL, readsFiles: functions.contains(where: \.readsFileDates))
     }
 
-    /// Read every file Smart Name hasn't yet — only while it is the chosen
-    /// function, so the model never runs for a rename that doesn't use it.
-    /// Called as files arrive and the function changes, and when the app comes
-    /// forward, which is when Apple Intelligence may have become ready.
+    /// Read every file Smart Name hasn't yet — only while a step is Smart
+    /// Name, so the model never runs for a rename that doesn't use it.
+    /// Called as files arrive and Smart Name joins the steps, and when the app
+    /// comes forward, which is when Apple Intelligence may have become ready.
     public func analyzeIfNeeded() {
-        guard kind == .smartName else { return }
+        guard readsDocuments else { return }
         analysis.analyze(items)
     }
 
-    /// Smart Name's progress for a row; nil for every other function.
+    /// Smart Name's progress for a row; nil when no step is Smart Name.
     public func readingStatus(for id: FileItem.ID) -> DocumentAnalysis.Status? {
-        kind == .smartName ? analysis.status[id] : nil
+        readsDocuments ? analysis.status[id] : nil
+    }
+
+    /// What Smart Name's details sheet starts from for a row: what was read,
+    /// and the date a read falls back to, the file's own.
+    public func documentDetails(for item: FileItem) -> (summary: DocumentSummary?, fileDate: Date?) {
+        (analysis.summaries[item.id], provider.metadata(for: item.url).creationDate)
+    }
+
+    // MARK: - Steps
+
+    /// The most steps a chain takes. A rename that needs more is better
+    /// split into two, and five numbered steps still fit the narrowest window.
+    public static let maxSteps = 5
+
+    public var canAddStep: Bool { steps.count < Self.maxSteps }
+
+    /// Add a step after the selected one, and edit it.
+    public func addStep() {
+        guard canAddStep else { return }
+        steps.insert(FunctionSettings(), at: selectedStepIndex + 1)
+        selectedStepIndex += 1
+    }
+
+    /// Remove the selected step; the last one left stays.
+    public func removeSelectedStep() {
+        guard steps.count > 1 else { return }
+        steps.remove(at: selectedStepIndex)
+    }
+
+    /// Move the selected step one place earlier (`by: -1`) or later (`1`),
+    /// keeping it selected.
+    public func moveSelectedStep(by offset: Int) {
+        let from = selectedStepIndex
+        let to = from + offset
+        guard steps.indices.contains(to) else { return }
+        steps.swapAt(from, to)
+        selectedStepIndex = to
     }
 
     // MARK: - File list
@@ -324,65 +259,58 @@ public final class AppModel {
     }
 
     /// Execute moves in order, updating the table and registering the inverse
-    /// for undo. All-or-nothing: on the first failure every completed move is
-    /// rolled back. Returns what went wrong — empty when the whole batch
-    /// succeeded. A rollback move can itself fail (a file locked or deleted
-    /// outside the app): that file stays where it is, possibly under a
-    /// temporary name from a half-finished cycle, the table keeps pointing at
-    /// its real location, and the returned message says where it was left.
-    private func applyMoves(_ moves: [MoveOp], undoManager: UndoManager?, actionName: String)
-        -> [String]
-    {
-        var done: [MoveOp] = []
-        for move in moves {
-            do {
-                try moveItem(move.from, move.to)
-                updateItemURL(from: move.from, to: move.to)
-                done.append(move)
-            } catch {
-                var failures = [move.to.lastPathComponent]
-                // Undo the completed moves, newest first, back to the start.
-                for completed in done.reversed() {
-                    do {
-                        try moveItem(completed.to, completed.from)
-                        updateItemURL(from: completed.to, to: completed.from)
-                    } catch {
-                        failures.append(
-                            "\(completed.from.lastPathComponent) (left as \(completed.to.lastPathComponent))")
-                    }
-                }
-                return failures
-            }
-        }
-        guard !done.isEmpty else { return [] }
-        let inverse = done.reversed().map { MoveOp(from: $0.to, to: $0.from) }
+    /// for undo. All-or-nothing (see `FileMover`). Returns what went wrong —
+    /// empty when the whole batch succeeded; the table keeps pointing at each
+    /// file's real location either way. `emptied` are folders an earlier batch
+    /// made that this one (its undo) moves the files back out of: taken away
+    /// once they're empty, so undoing a filing leaves no empty folders.
+    private func applyMoves(
+        _ moves: [MoveOp], undoManager: UndoManager?, actionName: String, emptied: [URL] = []
+    ) -> [String] {
+        let outcome = mover.run(moves)
+        updateItemURLs(outcome.applied)
+        guard outcome.failures.isEmpty else { return outcome.failures }
+        mover.removeIfEmpty(emptied)
+        guard !outcome.applied.isEmpty else { return [] }
+        let inverse = outcome.applied.reversed().map { MoveOp(from: $0.to, to: $0.from) }
+        let created = outcome.createdFolders
         undoManager?.registerUndo(withTarget: self) { model in
             // Surface any failure of the undo itself (e.g. a file moved or
             // deleted outside the app since) rather than failing silently.
-            let failures = model.applyMoves(inverse, undoManager: undoManager, actionName: actionName)
+            let failures = model.applyMoves(
+                inverse, undoManager: undoManager, actionName: actionName, emptied: created)
             if !failures.isEmpty { model.renameFailures = failures }
         }
         undoManager?.setActionName(actionName)
         return []
     }
 
-    private func updateItemURL(from: URL, to: URL) {
-        guard let index = items.firstIndex(where: { $0.url == from }) else { return }
-        items[index].url = to
+    /// Point the table at where the moves left each file, replayed in order
+    /// (a cycle goes through a temporary name). Indexed once, not searched
+    /// per move.
+    private func updateItemURLs(_ moves: [MoveOp]) {
+        var indexByURL = Dictionary(
+            items.indices.map { (items[$0].url, $0) }, uniquingKeysWith: { first, _ in first })
+        for move in moves {
+            guard let index = indexByURL.removeValue(forKey: move.from) else { continue }
+            items[index].url = move.to
+            indexByURL[move.to] = index
+        }
     }
 
     // MARK: - Presets
 
     public func saveCurrentAsPreset(named name: String) {
         presets.removeAll { $0.name == name }
-        presets.append(Preset(name: name, kind: kind, function: function, options: options))
+        presets.append(Preset(name: name, steps: functions, options: options))
         store.savePresets(presets)
     }
 
     public func apply(_ preset: Preset) {
-        kind = preset.kind
+        guard !preset.steps.isEmpty else { return }
         options = preset.options
-        loadParameters(from: preset.function)
+        selectedStepIndex = 0
+        steps = preset.steps.map(FunctionSettings.init(loading:))
     }
 
     public func deletePreset(named name: String) {
@@ -402,72 +330,20 @@ public final class AppModel {
         history.removeAll()
         store.saveHistory(history)
     }
-
-    /// Unpack a function value back into the editable parameter fields.
-    private func loadParameters(from function: RenameFunction) {
-        switch function {
-        case let .prepend(text): prependText = text
-        case let .append(text): appendText = text
-        case let .replaceFirst(find, with), let .replaceLast(find, with),
-            let .replaceAll(find, with), let .wildcard(find, with):
-            findText = find
-            replaceText = with
-        case let .regex(pattern, template):
-            findText = pattern
-            replaceText = template
-        case let .removeCharacters(mode):
-            switch mode {
-            case let .range(location, length):
-                removeMode = .range
-                removeLocation = location
-                removeLength = length
-            case let .fromEnd(count):
-                removeMode = .fromEnd
-                removeFromEnd = count
-            }
-        case let .insertCharacters(text, mode, pad):
-            insertText = text
-            switch mode {
-            case let .atIndex(index):
-                insertMode = .atIndex
-                insertIndex = index
-            case .fromEnd:
-                insertMode = .fromEnd
-            }
-            padEnabled = pad != nil
-            if let pad { padLength = pad }
-        case let .changeCase(value): textCase = value
-        case let .cleanUp(config): cleanUp = config
-        case let .sequence(config): sequence = config
-        case let .date(config): loadDate(config)
-        case let .smartName(config):
-            smartTemplate = config.template
-            smartDateFormat.load(config.dateFormat)
-            smartTextCase = config.textCase
-        }
-    }
-
-    private func loadDate(_ config: DateConfig) {
-        switch config.source {
-        case let .custom(date):
-            dateSource = .custom
-            customDate = date
-        case .fileCreated: dateSource = .fileCreated
-        case .exif: dateSource = .exif
-        }
-        dateFormat.load(config.format)
-        datePlacement = config.placement
-    }
 }
 
-/// Smart Name's findings as file metadata. Smart Name reads nothing else, so
-/// this never asks the base provider (a disk and ImageIO read per file).
+/// Smart Name's findings as file metadata. Unless another step needs the
+/// file's own dates, this never asks the base provider (a disk and ImageIO
+/// read per file).
 private struct SummarizedMetadataProvider: FileMetadataProvider {
     let base: FileMetadataProvider
     let documents: [URL: DocumentSummary]
+    let readsFiles: Bool
 
     func metadata(for url: URL) -> FileMetadata {
-        FileMetadata(document: documents[url])
+        var metadata = readsFiles ? base.metadata(for: url) : FileMetadata()
+        metadata.document = documents[url]
+        return metadata
     }
 
     func fileExists(at url: URL) -> Bool {
