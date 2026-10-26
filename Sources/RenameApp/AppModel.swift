@@ -44,6 +44,9 @@ public final class AppModel {
     public var history: [HistoryEntry] = []
 
     private let provider: FileMetadataProvider
+    /// Smart Name's reader, for renames from Shortcuts; the window reads
+    /// through `analysis`.
+    private let summarizer: DocumentSummarizer
     private let store: PersistenceStore
     /// The one thing that changes the user's files.
     private let mover: FileMover
@@ -57,6 +60,7 @@ public final class AppModel {
         }
     ) {
         self.provider = provider
+        self.summarizer = summarizer
         self.store = store
         self.analysis = DocumentAnalysis(summarizer: summarizer)
         self.mover = FileMover(moveItem: moveItem)
@@ -85,21 +89,28 @@ public final class AppModel {
     public var plan: [PlannedRename] {
         let functions = functions
         return RenameEngine.plan(
-            items: items, steps: functions, options: options, provider: planProvider(for: functions))
+            items: items, steps: functions, options: options,
+            provider: planProvider(for: functions, documents: windowDocuments))
     }
 
-    /// The provider the plan reads, with what Smart Name found for each file
+    /// What Smart Name found for the window's files, keyed by where each is now.
+    private var windowDocuments: [URL: DocumentSummary] {
+        let summaries = analysis.summaries
+        return Dictionary(
+            items.compactMap { item in summaries[item.id].map { (item.url, $0) } },
+            uniquingKeysWith: { first, _ in first })
+    }
+
+    /// The provider a plan reads, with what Smart Name found for each file
     /// in place of the disk read: a summary already carries its fallback date,
     /// so typing a template never goes to the disk — unless another step (a
     /// Date stamp, a date-sorted Sequence) reads the file's own dates too.
-    private func planProvider(for functions: [RenameFunction]) -> FileMetadataProvider {
+    private func planProvider(
+        for functions: [RenameFunction], documents: @autoclosure () -> [URL: DocumentSummary]
+    ) -> FileMetadataProvider {
         guard functions.contains(where: \.readsDocument) else { return provider }
-        let summaries = analysis.summaries
-        let byURL = Dictionary(
-            items.compactMap { item in summaries[item.id].map { (item.url, $0) } },
-            uniquingKeysWith: { first, _ in first })
         return SummarizedMetadataProvider(
-            base: provider, documents: byURL, readsFiles: functions.contains(where: \.readsFileDates))
+            base: provider, documents: documents(), readsFiles: functions.contains(where: \.readsFileDates))
     }
 
     /// Read every file Smart Name hasn't yet — only while a step is Smart
@@ -212,20 +223,92 @@ public final class AppModel {
     /// (shifts, swaps, rotations) run safely, and it is all-or-nothing — any
     /// failure rolls the whole batch back — so a file is never stranded.
     public func performRename(undoManager: UndoManager?) {
-        renameFailures = []  // clear any earlier run's failures before starting
-        let actions = RenameEngine.actionableRenames(plan)
-        guard !actions.isEmpty else { return }
+        renameFailures = commit(RenameEngine.actionableRenames(plan), undoManager: undoManager)
+    }
 
+    /// Move the planned rows' files, in an order that lets chains and swaps
+    /// run, and record the batch in history. Returns what went wrong — empty
+    /// when the whole batch succeeded.
+    private func commit(_ actions: [PlannedRename], undoManager: UndoManager?) -> [String] {
+        guard !actions.isEmpty else { return [] }
         let moves = actions.map { MoveOp(from: $0.url, to: $0.url.renamed(to: $0.proposedName)) }
-        let ordered = RenameSequencer.ordered(moves)
-        let rows = actions.map { HistoryEntry.Row(original: $0.originalName, renamed: $0.proposedName) }
-
-        let failures = applyMoves(ordered, undoManager: undoManager, actionName: "Rename")
+        let failures = applyMoves(
+            RenameSequencer.ordered(moves), undoManager: undoManager, actionName: "Rename")
         if failures.isEmpty {
-            recordHistory(rows)
-        } else {
-            renameFailures = failures
+            recordHistory(
+                actions.map { HistoryEntry.Row(original: $0.originalName, renamed: $0.proposedName) })
         }
+        return failures
+    }
+
+    // MARK: - Renaming from Shortcuts
+
+    /// What a rename run from outside the window did.
+    public struct OutsideRename: Sendable {
+        /// Where each file is now, in the order given: renamed or not.
+        public let files: [URL]
+        /// The files left as they were, and why: one Smart Name couldn't
+        /// read, a name that would collide.
+        public let skipped: [String]
+    }
+
+    /// Rename `urls` with `steps`, as Shortcuts asks: the same plan, the same
+    /// all-or-nothing moves and the same history as the Rename button, but
+    /// not the window's files or settings, which stay as they are. Smart Name
+    /// reads each file first. Throws when nothing could be renamed, the files
+    /// couldn't be moved (none are), or Smart Name can't run on this Mac.
+    public func rename(_ urls: [URL], steps: [RenameFunction], options: RenameOptions) async throws
+        -> OutsideRename
+    {
+        let items = urls.map { FileItem(url: $0) }
+        var documents: [URL: DocumentSummary] = [:]
+        var skipped: [String] = []
+        if steps.contains(where: \.readsDocument) {
+            guard summarizer.availability == .available else {
+                throw OutsideRenameError(summarizer.availability.explanation ?? "Smart Name can’t run.")
+            }
+            (documents, skipped) = await readDocuments(items)
+        }
+        let plan = RenameEngine.plan(
+            items: items, steps: steps, options: options,
+            provider: planProvider(for: steps, documents: documents))
+        skipped += plan.compactMap { row in row.issue.map { "\(row.originalName): \($0.explanation)" } }
+        let actions = RenameEngine.actionableRenames(plan)
+        if actions.isEmpty, !skipped.isEmpty {
+            throw OutsideRenameError("Nothing was renamed. " + skipped.joined(separator: " "))
+        }
+        let failures = commit(actions, undoManager: nil)
+        guard failures.isEmpty else {
+            throw OutsideRenameError(
+                "Nothing was renamed. These couldn’t be moved: " + failures.joined(separator: ", "))
+        }
+        let renamed = Dictionary(
+            uniqueKeysWithValues: actions.map { ($0.id, $0.url.renamed(to: $0.proposedName)) })
+        return OutsideRename(files: items.map { renamed[$0.id] ?? $0.url }, skipped: skipped)
+    }
+
+    /// Read `items` for Smart Name through a queue of their own, the same as
+    /// the window's (which gets a scan's text while the model answers for the
+    /// file before), starting from what the window has read — or been told —
+    /// for any of them. Returns what was found, and why the rest weren't.
+    private func readDocuments(_ items: [FileItem]) async -> ([URL: DocumentSummary], [String]) {
+        let reader = DocumentAnalysis(summarizer: summarizer)
+        let known = windowDocuments
+        for item in items {
+            if let summary = known[item.url] { reader.correct(item.id, to: summary) }
+        }
+        reader.analyze(items)
+        await reader.waitUntilIdle()
+        var documents: [URL: DocumentSummary] = [:]
+        var failures: [String] = []
+        for item in items {
+            if let summary = reader.summaries[item.id] {
+                documents[item.url] = summary
+            } else if case let .failed(reason) = reader.status[item.id] {
+                failures.append("\(item.originalName): \(reason)")
+            }
+        }
+        return (documents, failures)
     }
 
     /// Rename a single file now (double-click / context menu), outside the
@@ -348,5 +431,14 @@ private struct SummarizedMetadataProvider: FileMetadataProvider {
 
     func fileExists(at url: URL) -> Bool {
         base.fileExists(at: url)
+    }
+}
+
+/// Why a rename from Shortcuts didn't happen, in words for the person.
+struct OutsideRenameError: LocalizedError {
+    public let errorDescription: String?
+
+    init(_ description: String) {
+        errorDescription = description
     }
 }

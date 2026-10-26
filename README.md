@@ -138,6 +138,23 @@ again. Smart Name needs a Mac with Apple Intelligence turned on.
 | Space | Quick Look the selection |
 | ⌘Z / ⇧⌘Z | Undo / redo the last batch |
 
+## Shortcuts
+
+FilenameChanger adds three actions to the Shortcuts app:
+
+- **Rename Files with Preset** renames files with a saved preset, every step
+  of it.
+- **Smart Name Files** reads each document and names it from a template
+  (`{date} - {title}` unless you change it).
+- **Open Files in FilenameChanger** adds files to the window, to rename them
+  there.
+
+The first two run in the background without opening the window, and hand back
+the renamed files for the next action. A file they can't name is left as it
+is; if nothing could be renamed, the action stops with the reason. Pair them
+with a folder automation ("When files are added to Scans") to name every scan
+as it lands. Each batch appears in History, though it can't be undone with ⌘Z.
+
 ## Install
 
 1. [Download the latest DMG](https://github.com/bensquire/FilenameChanger/releases/latest).
@@ -196,6 +213,7 @@ Sources/RenameApp/                 # SwiftUI views and the @Observable AppModel
   FileMover.swift                  #   all-or-nothing moves, and the folders they make
   DocumentAnalysis.swift           #   Smart Name's queue: each file read once
   DocumentDetailsSheet.swift       #   correcting what Smart Name read
+  ShortcutsActions.swift           #   the Shortcuts actions (App Intents)
   ContentView.swift                #   file table, toolbar, options bar
   FunctionParametersView.swift     #   per-function controls
   FileAdder.swift                  #   open panel, drops and folder expansion
@@ -206,7 +224,8 @@ Sources/FilenameChanger/           # @main entry point
 Tests/FilenameChangerTests/        # Swift Testing: every function, the engine,
                                    #   and real renames on disk in temp folders
 icon/                              # programmatic icon generator
-scripts/                           # Info.plist template, DMG packaging
+scripts/                           # Info.plist template, DMG packaging, App Intents
+                                   #   const-extraction protocol list
 ```
 
 `RenameKit` doesn't import AppKit and reads file metadata through an injected

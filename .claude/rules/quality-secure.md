@@ -16,8 +16,9 @@ paths: ["Sources/**/*.swift", "bundle.sh", "release.sh", "scripts/**", "Package.
   raised before it is built.
 - **No way in but the user's.** Files arrive only from the user: the open
   panel, a drop, Open With, and the Finder Service, which reads file URLs only
-  (`.urlReadingFileURLsOnly`). There is no socket, no helper, no URL scheme and
-  no child process.
+  (`.urlReadingFileURLsOnly`), and the Shortcuts actions, which act only on
+  files a shortcut the user built hands them. There is no socket, no helper,
+  no URL scheme and no child process.
 - **Nothing is overwritten.** Every move goes through the one injected
   `moveItem`, which is `FileManager.moveItem`, and that never replaces an
   existing file. The plan flags a name that is taken, wanted twice, empty,

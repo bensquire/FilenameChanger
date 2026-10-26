@@ -499,7 +499,8 @@ struct SheetButtons: View {
 }
 
 extension RenameIssue {
-    /// Why a row can’t be renamed, in words for the person: a grey row’s tooltip.
+    /// Why a row can't be renamed, in words for the person: a grey row's
+    /// tooltip, and a file Shortcuts left alone.
     var explanation: String {
         switch self {
         case .collision: return "A file with this name already exists."

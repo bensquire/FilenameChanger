@@ -19,13 +19,14 @@ promises follow from that, and every change is held to them:
 |---|---|
 | `Sources/RenameKit` | The engine: the fourteen functions as `RenameFunction` cases, `RenameEngine` (the plan and its collision rules), `RenameSequencer` (orders chained moves through temporary names), `TextMatching`, and `SystemFileMetadataProvider` (file dates and EXIF through ImageIO). No AppKit or SwiftUI, and it moves no files. Smart Name's findings arrive as `FileMetadata.document`, so the engine stays synchronous. |
 | `Sources/RenameIntelligence` | Smart Name's reader. `DocumentText` gets the text (the PDFKit text layer, Vision OCR for scans and images, plain text), and `AppleIntelligenceSummarizer` asks the on-device Foundation Models model for a title, sender, type and date behind the `DocumentSummarizer` protocol. On device only, no Private Cloud Compute. |
-| `Sources/RenameApp` | The `@MainActor @Observable AppModel`, which alone moves files, and the views. Also the edges to the system: `AppDelegate` (Open With, the Dock icon, the Finder Service, `FILENAMECHANGER_FOLDER`), `FileAdder` (open panel, drops, folder walks), `FileCommands` (the File menu), `Persistence` (presets and history as JSON), `DocumentAnalysis` (Smart Name's queue, which reads each row once, keyed by row id), `FileMover` (the all-or-nothing moves and the folders Smart Name files into) and `FunctionSettings` (one step as the panel edits it). A library, so the model is testable. |
-| `Sources/FilenameChanger` | The `@main` scene and nothing else. |
+| `Sources/RenameApp` | The `@MainActor @Observable AppModel`, which alone moves files, and the views. Also the edges to the system: `AppDelegate` (Open With, the Dock icon, the Finder Service, `FILENAMECHANGER_FOLDER`), `FileAdder` (open panel, drops, folder walks), `FileCommands` (the File menu), `Persistence` (presets and history as JSON), `DocumentAnalysis` (Smart Name's queue, which reads each row once, keyed by row id), `FileMover` (the all-or-nothing moves and the folders Smart Name files into), `FunctionSettings` (one step as the panel edits it) and `ShortcutsActions` (the App Intents actions, which rename through `AppModel.rename(_:steps:options:)` without touching the window). A library, so the model is testable. |
+| `Sources/FilenameChanger` | The `@main` scene, and the `AppShortcutsProvider`, which App Intents only finds in the executable. |
 | `Tests/FilenameChangerTests` | Swift Testing (`@Test`, `#expect`), not XCTest. Engine tests use `FakeMetadataProvider` and never touch the disk; the on-disk suites rename real files in temp folders. |
-| `icon/`, `scripts/` | The icon generator and `.icns`; `Info.plist.template` (the Service, the document type), `make-dmg.sh`, `repack-icns.py`. |
+| `icon/`, `scripts/` | The icon generator and `.icns`; `Info.plist.template` (the Service, the document type), `make-dmg.sh`, `repack-icns.py`, and `const_extract_protocols.json`, which `bundle.sh` hands swiftc so the App Intents metadata can be extracted. |
 
 No dependencies; swift-tools 6.2, macOS 26. There is no MCP server, socket,
-helper binary, URL scheme or second executable.
+helper binary, URL scheme or second executable. The one way in from outside
+is the Shortcuts actions, run from shortcuts the user builds.
 
 ## Commands
 
@@ -38,8 +39,10 @@ CODESIGN_IDENTITY=- ./bundle.sh                         # ad-hoc signed, as CI's
 FILENAMECHANGER_FOLDER=/path swift run FilenameChanger  # start with that folder's files
 ```
 
-`swift run` has no `Info.plist`, so the Finder Service and Open With need the
-bundle.
+`swift run` has no `Info.plist`, so the Finder Service, Open With and the
+Shortcuts actions need the bundle. Shortcuts only runs the actions from a
+Developer ID build (`make bundle`) launched once normally; an ad-hoc one lists
+them but "couldn't communicate with the app".
 
 ## Where the rest lives
 

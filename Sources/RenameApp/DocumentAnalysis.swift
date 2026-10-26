@@ -77,7 +77,8 @@ public final class DocumentAnalysis {
         status.removeAll()
     }
 
-    /// Wait for the queue to empty — for tests, which can't watch the table.
+    /// Wait for the queue to empty: for a rename from Shortcuts, which names
+    /// the files once they’re all read, and for tests.
     func waitUntilIdle() async {
         await worker?.value
     }

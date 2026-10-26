@@ -1,3 +1,4 @@
+import AppIntents
 import RenameApp
 import SwiftUI
 
@@ -16,5 +17,25 @@ struct FilenameChangerApp: App {
         .commands {
             FileCommands(model: delegate.model)
         }
+    }
+}
+
+/// The app's Shortcuts actions live in `RenameApp`; this brings them in.
+/// /documentation/appintents/appintentspackage
+struct FilenameChangerPackage: AppIntentsPackage {
+    static var includedPackages: [any AppIntentsPackage.Type] { [RenameAppPackage.self] }
+}
+
+/// The actions Shortcuts offers ready-made, with nothing to set up. Here, not
+/// in `RenameApp`: a provider in a library is dropped from the app's metadata.
+/// /documentation/appintents/appshortcutsprovider
+struct FilenameChangerShortcuts: AppShortcutsProvider {
+    static var appShortcuts: [AppShortcut] {
+        AppShortcut(
+            intent: SmartNameIntent(), phrases: ["Smart Name files with \(.applicationName)"],
+            shortTitle: "Smart Name Files", systemImageName: "apple.intelligence")
+        AppShortcut(
+            intent: RenameWithPresetIntent(), phrases: ["Rename files with \(.applicationName)"],
+            shortTitle: "Rename with Preset", systemImageName: "character.cursor.ibeam")
     }
 }

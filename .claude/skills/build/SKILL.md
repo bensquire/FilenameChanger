@@ -31,7 +31,7 @@ Timings are from this Mac, 25 October 2026.
 |---|---|---|
 | Debug build | `swift build` | `.build/debug/FilenameChanger`; about 15 s from clean |
 | Run unbundled | `swift run FilenameChanger` | `FILENAMECHANGER_FOLDER=/path swift run FilenameChanger` loads that folder's top-level files at launch. No `Info.plist`, so no Finder Service and no Open With |
-| Test suite | `make test` | `swift test`, a debug build: 161 tests in 20 suites, run in about 0.3 s; 2–3 s wall clock warm, about 21 s from clean. The first run after a reboot can take a minute while Vision loads its text-recognition model for the two OCR tests |
+| Test suite | `make test` | `swift test`, a debug build: 169 tests in 21 suites, run in about 0.3 s; 2–3 s wall clock warm, about 21 s from clean. The first run after a reboot can take a minute while Vision loads its text-recognition model for the two OCR tests |
 | One test | `swift test --filter swapRenamesBothFiles` | a suite's type name (`EngineTests`) or a test's function name. A `@Test("…")` display name does not match |
 | Lint | `make lint` | `swift format lint --strict` over `Sources`, `Tests`, `Package.swift`; warnings fail; 0.2 s |
 | Format | `make format` | rewrites in place; run it over the files you changed |
@@ -41,13 +41,19 @@ Timings are from this Mac, 25 October 2026.
 | Icon | `swift icon/makeicon.swift && iconutil -c icns icon/FilenameChanger.iconset -o icon/FilenameChanger.icns` | then shrink it: `oxipng -o max --strip safe icon/FilenameChanger.iconset/*.png` and `python3 scripts/repack-icns.py icon/FilenameChanger.icns icon/FilenameChanger.iconset icon/FilenameChanger.icns` (the `quality-images-minified` rule) |
 | Clean | `make clean` | `swift package clean`, and removes the app, DMG and `dist/` |
 
-What `bundle.sh` does, in order: `swift build -c release -Xswiftc -Osize`
-(about 18 s from clean); copies the executable into `Contents/MacOS` and
-strips it; copies `icon/FilenameChanger.icns`; writes `Info.plist` from
+What `bundle.sh` does, in order: `swift build -c release -Xswiftc -Osize`,
+with `-emit-const-values` and the protocol list in
+`scripts/const_extract_protocols.json` (about 18 s from clean, 12 s warm);
+copies the executable into `Contents/MacOS`; runs Xcode's
+`appintentsmetadataprocessor` twice (RenameApp, then the executable, merging
+RenameApp's) to write `Contents/Resources/Metadata.appintents`, which is how
+Shortcuts finds the actions; strips the executable; copies
+`icon/FilenameChanger.icns`; writes `Info.plist` from
 `scripts/Info.plist.template` with the version and checks it with `plutil`;
 signs the app with the hardened runtime and a timestamp; and verifies the
-signature. The result is 916 KB (`du -sh`): the executable 836 KB, the icon
-69 KB.
+signature. The result is 1.0 MB (`du -sh`): the executable 900 KB, the icon
+69 KB, the metadata 20 KB. Check the actions landed with
+`plutil -p FilenameChanger.app/Contents/Resources/Metadata.appintents/extract.actionsdata | grep Intent`.
 
 ## Matching CI
 
@@ -62,6 +68,17 @@ Those three locally are a CI run.
 this Mac is not a git repository, so the hook does not run here.
 
 ## Things that bite
+
+- **Release flags and the build cache.** `bundle.sh`'s release build passes
+  the const-values flags; a `swift build -c release` without them rebuilds
+  every module, and so does the next `bundle.sh`. Use `bundle.sh` for release
+  builds.
+- **Shortcuts only runs a Developer ID build.** An ad-hoc bundle lists the
+  actions, but running one fails with "Shortcuts couldn't communicate with the
+  app". Use `make bundle`, and launch the app once normally: an app that has
+  never been opened, or sits in a temp folder, isn't indexed.
+- **Shortcuts hands Finder files over as `/.nofollow/…`** (macOS 27.0.1).
+  `IntentFile.originalFileURL` strips it; use it rather than `fileURL`.
 
 - **The certificate spells the name `SOUIRE`.** `bundle.sh`'s default identity
   matches it, as PaperPress's does. "Correct" it to `SQUIRE` and `codesign`
