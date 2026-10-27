@@ -1,6 +1,6 @@
 // Generates the FilenameChanger app icon (same family as PaperDrop/PaperPress:
-// flat vivid tile, bold white glyph, soft shadows). The glyph is a filename
-// field with a text caret — a name being edited.
+// flat vivid tile, bold white glyph, soft shadows). The glyph is a stack of
+// filename fields, the front one being edited — many names changed at once.
 // Run: swift icon/makeicon.swift   (from the repo root)
 import CoreGraphics
 import Foundation
@@ -17,8 +17,8 @@ func draw(_ size: Int) -> CGImage {
         space: CGColorSpace(name: CGColorSpace.sRGB)!,
         bitmapInfo: CGImageAlphaInfo.premultipliedLast.rawValue)!
 
-    // Flat tile (indigo — the family's third hue, after blue and vermillion).
-    let bg = CGColor(red: 0.30, green: 0.31, blue: 0.86, alpha: 1)
+    // Flat orange tile.
+    let bg = CGColor(red: 0.918, green: 0.345, blue: 0.047, alpha: 1)
     let tile = CGPath(
         roundedRect: CGRect(x: 0, y: 0, width: s, height: s),
         cornerWidth: s * 0.225, cornerHeight: s * 0.225, transform: nil)
@@ -39,41 +39,34 @@ func draw(_ size: Int) -> CGImage {
             cornerWidth: r * s, cornerHeight: r * s, transform: nil)
     }
 
-    // The name field: a white rounded rectangle.
+    // White mixed into the tile colour: the cards behind are solid tints, not
+    // see-through white, so their shadows don't show through them.
+    func tint(_ white: CGFloat) -> CGColor {
+        let c = bg.components ?? [0, 0, 0, 1]
+        return CGColor(
+            red: c[0] + (1 - c[0]) * white, green: c[1] + (1 - c[1]) * white,
+            blue: c[2] + (1 - c[2]) * white, alpha: 1)
+    }
+
+    // The stack, back to front: two names waiting, then the one being edited.
+    ctx.setFillColor(tint(0.4))
+    ctx.addPath(rect(x: 0.221, y: 0.206, w: 0.558, h: 0.194, r: 0.053))
+    ctx.fillPath()
     softShadow()
+    ctx.setFillColor(tint(0.7))
+    ctx.addPath(rect(x: 0.170, y: 0.369, w: 0.660, h: 0.214, r: 0.058))
+    ctx.fillPath()
     ctx.setFillColor(CGColor(red: 1, green: 1, blue: 1, alpha: 1))
-    ctx.addPath(rect(x: 0.18, y: 0.37, w: 0.64, h: 0.26, r: 0.05))
+    ctx.addPath(rect(x: 0.121, y: 0.546, w: 0.757, h: 0.243, r: 0.066))
     ctx.fillPath()
 
-    // Text bars inside the field, and a caret, cut in the tile colour.
+    // The selected text in the front field, in the tile colour, and the caret.
     ctx.setShadow(offset: .zero, blur: 0, color: nil)
     ctx.setFillColor(bg)
-    ctx.addPath(rect(x: 0.26, y: 0.475, w: 0.22, h: 0.05, r: 0.025))
+    ctx.addPath(rect(x: 0.197, y: 0.638, w: 0.364, h: 0.061, r: 0.030))
     ctx.fillPath()
-    // Blinking caret just after the text.
-    ctx.addPath(rect(x: 0.50, y: 0.45, w: 0.022, h: 0.10, r: 0.011))
-    ctx.fillPath()
-
-    // Rename arrow beneath the field: the name changing.
-    softShadow()
-    ctx.setFillColor(CGColor(red: 1, green: 1, blue: 1, alpha: 1))
-    func pt(_ x: Double, _ y: Double) -> CGPoint { CGPoint(x: x * s, y: s - y * s) }
-    let shaftW = 0.055
-    let headW = 0.16
-    let leftX = 0.30
-    let rightApex = 0.70
-    let midY = 0.72
-    let headBase = rightApex - headW * 0.62
-    let path = CGMutablePath()
-    path.move(to: pt(leftX, midY - shaftW / 2))
-    path.addLine(to: pt(headBase, midY - shaftW / 2))
-    path.addLine(to: pt(headBase, midY - headW / 2))
-    path.addLine(to: pt(rightApex, midY))
-    path.addLine(to: pt(headBase, midY + headW / 2))
-    path.addLine(to: pt(headBase, midY + shaftW / 2))
-    path.addLine(to: pt(leftX, midY + shaftW / 2))
-    path.closeSubpath()
-    ctx.addPath(path)
+    ctx.setFillColor(CGColor(red: 0.122, green: 0.161, blue: 0.216, alpha: 1))
+    ctx.addPath(rect(x: 0.580, y: 0.614, w: 0.029, h: 0.109, r: 0.015))
     ctx.fillPath()
 
     return ctx.makeImage()!

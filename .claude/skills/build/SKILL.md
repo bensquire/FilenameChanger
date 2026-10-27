@@ -20,7 +20,7 @@ executable into `FilenameChanger.app`.
 - `swift format` ships with the toolchain; nothing to install for lint.
 - For a Developer ID bundle: the "Developer ID Application" identity in the
   login keychain. Without it, sign ad hoc (below).
-- For icon work only: `python3` for `scripts/repack-icns.py`, and `oxipng`
+- For icon work only: `python3` for `scripts/repack-icns.py`, `pngquant` and `oxipng`
   (Homebrew) to optimise the iconset PNGs.
 
 ## Commands
@@ -38,7 +38,7 @@ Timings are from this Mac, 25 October 2026.
 | Bundle | `make bundle` | `./bundle.sh` → `FilenameChanger.app` at the repo root (git-ignored), signed with Developer ID. See "Things that bite" |
 | Bundle, ad hoc | `CODESIGN_IDENTITY=- ./bundle.sh` | what CI's smoke step runs; `VERSION=1.2.3` sets the version (default 0.1.0) |
 | Launch | `pkill -x FilenameChanger; open FilenameChanger.app` | quit first: `open` only brings an already-running copy forward. `open --env FILENAMECHANGER_FOLDER=/path FilenameChanger.app` passes the folder |
-| Icon | `swift icon/makeicon.swift && iconutil -c icns icon/FilenameChanger.iconset -o icon/FilenameChanger.icns` | then shrink it: `oxipng -o max --strip safe icon/FilenameChanger.iconset/*.png` and `python3 scripts/repack-icns.py icon/FilenameChanger.icns icon/FilenameChanger.iconset icon/FilenameChanger.icns` (the `quality-images-minified` rule) |
+| Icon | `swift icon/makeicon.swift && iconutil -c icns icon/FilenameChanger.iconset -o icon/FilenameChanger.icns` | then shrink it: `pngquant --quality 80-100` each PNG (the `quality-images-minified` rule has the loop), `oxipng -o max --strip safe icon/FilenameChanger.iconset/*.png` and `python3 scripts/repack-icns.py icon/FilenameChanger.icns icon/FilenameChanger.iconset icon/FilenameChanger.icns` (the `quality-images-minified` rule) |
 | Clean | `make clean` | `swift package clean`, and removes the app, DMG and `dist/` |
 
 What `bundle.sh` does, in order: `swift build -c release -Xswiftc -Osize`,
@@ -51,8 +51,8 @@ Shortcuts finds the actions; strips the executable; copies
 `icon/FilenameChanger.icns`; writes `Info.plist` from
 `scripts/Info.plist.template` with the version and checks it with `plutil`;
 signs the app with the hardened runtime and a timestamp; and verifies the
-signature. The result is 1.0 MB (`du -sh`): the executable 900 KB, the icon
-69 KB, the metadata 20 KB. Check the actions landed with
+signature. The result is 972 KB (`du -sh`): the executable 900 KB, the icon
+40 KB, the metadata 20 KB. Check the actions landed with
 `plutil -p FilenameChanger.app/Contents/Resources/Metadata.appintents/extract.actionsdata | grep Intent`.
 
 ## Matching CI

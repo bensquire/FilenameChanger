@@ -10,12 +10,13 @@ paths: ["Package.swift", "bundle.sh", "scripts/**", "icon/**"]
 
 **Impact: MEDIUM**
 
-`FilenameChanger.app` is 1.0 MB on disk (`du -sh`): the executable 900 KB
-(921,360 bytes), the icon 69 KB (70,997 bytes, repacked) and the Shortcuts
-metadata 20 KB. That is the stripped `-Osize` release build of 25 October 2026
-with chains, Smart Name and the Shortcuts actions. Chains and Smart Name's
-filing added 68 KB to the executable (768 KB before), App Intents 64 KB more;
-before Smart Name it was 716 KB, with a 634 KB executable. `Package.swift` has no
+`FilenameChanger.app` is 972 KB on disk (`du -sh`): the executable 900 KB
+(923,504 bytes), the icon 40 KB (40,897 bytes, quantised and repacked) and
+the Shortcuts metadata 20 KB. That is the stripped `-Osize` release build of
+27 October 2026, Developer ID signed, with chains, Smart Name and the Shortcuts
+actions. Chains and Smart Name's filing added 68 KB to the executable (768 KB
+before), App Intents 64 KB more; before Smart Name it was 716 KB, with a
+634 KB executable. `Package.swift` has no
 dependencies. The rename engine, the move sequencing, the wildcard translation,
 the persistence and Smart Name's reader are this package's own code over
 Foundation, ImageIO, AppKit, SwiftUI, Quick Look, PDFKit, Vision and Foundation
