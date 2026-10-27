@@ -63,7 +63,9 @@ signature. The result is 972 KB (`du -sh`): the executable 900 KB, the icon
 non-draft pull requests, and by hand. It skips Markdown-only, `images/`,
 `LICENSE` and `.gitignore` changes. It runs `make lint`, `make test`, then
 `CODESIGN_IDENTITY=- ./bundle.sh`, and checks the app's executable exists.
-Those three locally are a CI run.
+Those three locally are a CI run, except that CI skips the two OCR tests:
+Vision can't compile its text-recognition model on GitHub's virtual machines,
+so they are disabled when `GITHUB_ACTIONS` is set.
 
 `.githooks/pre-commit` runs `make lint` and `make test`. It is active only once
 `git config core.hooksPath .githooks` is set in a clone, and it is not set in

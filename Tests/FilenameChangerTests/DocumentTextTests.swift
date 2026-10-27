@@ -7,6 +7,11 @@ import UniformTypeIdentifiers
 
 @testable import RenameIntelligence
 
+/// GitHub's macOS runners are virtual machines on which Vision fails to compile
+/// its text-recognition model ("e5rt_e5_compiler_compile call failed", 11), so
+/// the OCR tests run on a Mac only.
+private let visionCantRunHere = ProcessInfo.processInfo.environment["GITHUB_ACTIONS"] != nil
+
 @Suite("Smart Name: reading a document's text")
 struct DocumentTextTests {
     private let sandbox: Sandbox
@@ -39,7 +44,9 @@ struct DocumentTextTests {
         #expect(text.contains("Electricity Bill"))
     }
 
-    @Test("a scanned PDF, a picture of text, is read by OCR")
+    @Test(
+        "a scanned PDF, a picture of text, is read by OCR",
+        .disabled(if: visionCantRunHere, "Vision OCR fails on GitHub's virtual machines"))
     func scannedPDF() async throws {
         let url = sandbox.url("scan.pdf")
         let image = try #require(Self.textImage())
@@ -50,7 +57,9 @@ struct DocumentTextTests {
         #expect(text.contains("Electricity Bill"))
     }
 
-    @Test("a photo of a document is read by OCR")
+    @Test(
+        "a photo of a document is read by OCR",
+        .disabled(if: visionCantRunHere, "Vision OCR fails on GitHub's virtual machines"))
     func imageOCR() async throws {
         let url = sandbox.url("photo.png")
         let image = try #require(Self.textImage())
