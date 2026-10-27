@@ -14,9 +14,11 @@ executable into `FilenameChanger.app`.
 
 ## Prerequisites
 
-- macOS 26 and Xcode 26 (Swift 6.2 or later). CI pins Xcode 26.6 on
-  `macos-26`; this Mac has Xcode 27.1 (Swift 6.4), whose `swift format` could
-  in principle disagree with CI's on a new rule.
+- Xcode 27 (Swift 6.4): Smart Name uses `LanguageModelError`, which is in the
+  macOS 27 SDK, so Xcode 26 fails to compile `DocumentSummarizer.swift`. The
+  app still runs on macOS 26. CI pins Xcode 27.1 on GitHub's `xcode-27`
+  runner, a preview image, the same Xcode as this Mac; the `macos-26` runner
+  has only Xcode 26.
 - `swift format` ships with the toolchain; nothing to install for lint.
 - For a Developer ID bundle: the "Developer ID Application" identity in the
   login keychain. Without it, sign ad hoc (below).
