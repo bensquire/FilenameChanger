@@ -21,14 +21,21 @@ public final class AppDelegate: NSObject, NSApplicationDelegate {
 
     /// The one `NSApplicationDelegateAdaptor` calls. It hands the model to
     /// the Shortcuts actions, before any can run: one may launch the app in
-    /// the background. A dev shortcut, `FILENAMECHANGER_FOLDER=/path`,
+    /// the background. Two dev shortcuts: `FILENAMECHANGER_FOLDER=/path`
     /// pre-loads that folder's files so the table is populated without the
-    /// open panel.
+    /// open panel, and `FILENAMECHANGER_STORE=/path` keeps presets and history
+    /// there instead of Application Support, so a trial run leaves the real
+    /// ones alone.
     /// /documentation/appintents/appdependencymanager
     override public convenience init() {
-        let model = AppModel()
+        let environment = ProcessInfo.processInfo.environment
+        let store = PersistenceStore(
+            directory: environment["FILENAMECHANGER_STORE"].map {
+                URL(filePath: $0, directoryHint: .isDirectory)
+            })
+        let model = AppModel(store: store)
         AppDependencyManager.shared.add(dependency: model)
-        if let path = ProcessInfo.processInfo.environment["FILENAMECHANGER_FOLDER"] {
+        if let path = environment["FILENAMECHANGER_FOLDER"] {
             let folder = URL(filePath: path, directoryHint: .isDirectory)
             model.add(urls: FileAdder.expand([folder], mode: .folderContents))
         }

@@ -58,5 +58,7 @@ them but "couldn't communicate with the app".
   bites.
 - State: presets and history persist as `presets.json` and `history.json` in
   `~/Library/Application Support/FilenameChanger/`; an unreadable one is kept
-  as `.bak`. The file list, the chosen function and the options start fresh at
-  every launch, so a relaunch is a clean trial. The app is not sandboxed.
+  as `.bak`. `FILENAMECHANGER_STORE=/path` moves both (the
+  `workflow-diagnostics` rule). The file list, the chosen function and the
+  options start fresh at every launch, so a relaunch is a clean trial. The app
+  is not sandboxed.

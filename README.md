@@ -188,6 +188,8 @@ make bundle                   # build FilenameChanger.app
 
 `FILENAMECHANGER_FOLDER=/path/to/folder swift run FilenameChanger` loads that
 folder's files at launch, so you can skip the open panel while iterating.
+Add `FILENAMECHANGER_STORE=/path/to/folder` to keep that run's presets and
+history there instead of in Application Support.
 
 Enable the pre-commit hook (lint + tests) with:
 

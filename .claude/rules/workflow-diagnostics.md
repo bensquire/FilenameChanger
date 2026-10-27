@@ -14,8 +14,9 @@ A switch worth keeping is an environment variable named `FILENAMECHANGER_*`,
 read once, at the composition root, and handed in as a value.
 `FILENAMECHANGER_FOLDER` is read in `AppDelegate.init()`, which lists the
 folder and hands the files to `model.add(urls:)`, so the model itself stays
-environment-free. Diagnostics for one investigation go in a separate file,
-marked temporary, and are deleted before handover. They are never woven into
+environment-free. `FILENAMECHANGER_STORE` is read there too, and becomes the
+`PersistenceStore` handed to `AppModel`. Diagnostics for one investigation go
+in a separate file, marked temporary, and are deleted before handover. They are never woven into
 `RenameEngine.plan` or `AppModel.applyMoves`, where stripping them means
 editing the code that renames.
 
