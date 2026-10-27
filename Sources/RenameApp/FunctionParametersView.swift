@@ -285,6 +285,7 @@ struct FunctionParametersView: View {
         row(label) {
             TextField("", text: text, prompt: prompt.map(Text.init))
                 .frame(maxWidth: 320)
+                .accessibilityLabel(label)
         }
     }
 
