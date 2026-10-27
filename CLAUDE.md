@@ -56,6 +56,13 @@ them but "couldn't communicate with the app".
 - `.claude/skills/build/`: building, testing, linting, bundling and releasing,
   with prerequisites, timings, what CI and the pre-commit hook run, and what
   bites.
+- `.claude/skills/run-filenamechanger/`: launching the bundled app on
+  throwaway files and driving it: choosing functions, typing, pressing
+  Rename, undoing, screenshots. `driver.sh` does the work.
+- `.claude/settings.json` and `.claude/hooks/`: after every edit to a `.swift`
+  file, swift-format formats it and any line still too long is reported.
+- `TODO.md`, git-ignored: the user's list of what is left, one short bullet
+  each (the `workflow-todo-entries` rule).
 - State: presets and history persist as `presets.json` and `history.json` in
   `~/Library/Application Support/FilenameChanger/`; an unreadable one is kept
   as `.bak`. `FILENAMECHANGER_STORE=/path` moves both (the

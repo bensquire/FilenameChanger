@@ -16,7 +16,9 @@ imports, lower camel case, no semicolons or block comments, shorthand type
 names. `make lint` runs it with `--strict` over `Sources`, `Tests` and
 `Package.swift`, so a warning fails; it takes about a quarter of a second. CI's
 first step and the pre-commit hook run the same target. `make format` rewrites
-in place. There is no SwiftLint here.
+in place. There is no SwiftLint here. When Claude Code edits a `.swift` file, a
+hook formats it straight away and lists any line still too long, such as a
+long string or doc comment, which swift-format can't break.
 
 `NeverForceUnwrap`, `NeverUseForceTry` and `NeverUseImplicitlyUnwrappedOptionals`
 are on, so a nil or a thrown error goes down the path the code already has for

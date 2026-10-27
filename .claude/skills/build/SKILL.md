@@ -37,7 +37,7 @@ Timings are from this Mac, 25 October 2026.
 | Format | `make format` | rewrites in place; run it over the files you changed |
 | Bundle | `make bundle` | `./bundle.sh` → `FilenameChanger.app` at the repo root (git-ignored), signed with Developer ID. See "Things that bite" |
 | Bundle, ad hoc | `CODESIGN_IDENTITY=- ./bundle.sh` | what CI's smoke step runs; `VERSION=1.2.3` sets the version (default 0.1.0) |
-| Launch | `pkill -x FilenameChanger; open FilenameChanger.app` | quit first: `open` only brings an already-running copy forward. `open --env FILENAMECHANGER_FOLDER=/path FilenameChanger.app` passes the folder |
+| Launch | `pkill -x FilenameChanger; open FilenameChanger.app` | quit first: `open` only brings an already-running copy forward. `open --env FILENAMECHANGER_FOLDER=/path FilenameChanger.app` passes the folder. The `run-filenamechanger` skill launches and drives it |
 | Icon | `swift icon/makeicon.swift && iconutil -c icns icon/FilenameChanger.iconset -o icon/FilenameChanger.icns` | then shrink it: `pngquant --quality 80-100` each PNG (the `quality-images-minified` rule has the loop), `oxipng -o max --strip safe icon/FilenameChanger.iconset/*.png` and `python3 scripts/repack-icns.py icon/FilenameChanger.icns icon/FilenameChanger.iconset icon/FilenameChanger.icns` (the `quality-images-minified` rule) |
 | Clean | `make clean` | `swift package clean`, and removes the app, DMG and `dist/` |
 
@@ -64,8 +64,15 @@ non-draft pull requests, and by hand. It skips Markdown-only, `images/`,
 Those three locally are a CI run.
 
 `.githooks/pre-commit` runs `make lint` and `make test`. It is active only once
-`git config core.hooksPath .githooks` is set in a clone. The working copy on
-this Mac is not a git repository, so the hook does not run here.
+`git config core.hooksPath .githooks` is set in a clone, and it is not set in
+the working copy on this Mac.
+
+Claude Code's own hook is separate: `.claude/settings.json` runs
+`.claude/hooks/swift-format.sh` after every Edit or Write. On a `.swift` file
+it formats the file in place, then lists the lines still over
+`.swift-format`'s `lineLength` and exits 2, which is advice rather than a
+block. Four lines in `Sources` are already over, so editing their files
+reports them.
 
 ## Things that bite
 

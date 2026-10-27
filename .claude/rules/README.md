@@ -24,6 +24,7 @@ without applies always. `_sections.md` defines the sections and their order;
 - [workflow-checking-work](workflow-checking-work.md) - Lint, the whole suite, then real files renamed and undone in a throwaway folder
 - [workflow-commit-messages](workflow-commit-messages.md) - Prose, with the measurements
 - [workflow-diagnostics](workflow-diagnostics.md) - `FILENAMECHANGER_*` read at the composition root to keep, a separate file to throw away
+- [workflow-todo-entries](workflow-todo-entries.md) - One bullet each in the local `TODO.md`: a bold name, what is left, what would settle it
 
 ### Quality
 

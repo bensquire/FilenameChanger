@@ -20,10 +20,10 @@ Before saying a change is done:
    clean about 21 s.
 3. **The real thing**, for anything touching a function, the plan, the moves or
    the file list: rename real files in a throwaway folder, never the user's
-   originals. Use the relaunched app, or
-   `FILENAMECHANGER_FOLDER=/path swift run FilenameChanger`. Check the New Name
-   column and the grey rows, press Rename, then check the folder (`ls -la`):
-   the names are right, the contents moved with them, and no
+   originals. Use the relaunched app, driven by the `run-filenamechanger`
+   skill, or `FILENAMECHANGER_FOLDER=/path swift run FilenameChanger`. Check
+   the New Name column and the grey rows, press Rename, then check the folder
+   (`ls -la`): the names are right, the contents moved with them, and no
    `.filenamechanger-rename-…` file is left. Then ⌘Z, and check every name is
    back. For an EXIF date, use real photos; the tests use none.
 4. **The bundle**, when `bundle.sh`, `scripts/Info.plist.template` or a target
